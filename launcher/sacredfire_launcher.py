@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""SacredFire launcher (GTK4 / libadwaita): runs Crash Team Racing: Nitro-Fueled natively on Linux.
+"""Momochan32 launcher (GTK4 / libadwaita): runs Crash Team Racing: Nitro-Fueled natively on macOS and Linux.
+A personal fork of SacredFire (OCTR); see the Credits on the Settings page.
 
 Picks the game folder (the merged 1.21 dump), the controller and the start-up options passed to
 run.sh as environment variables, edits the port's settings in bbport.ini (game patches, FPS
@@ -62,7 +63,8 @@ MAX_LOG_LINES = 5000
 COMMUNITY_DISCORD = "https://discord.gg/PAT5SJzdXw"  # bugs, questions, ban appeals
 RANK_SITE = "https://crashteamrank.vercel.app"  # record validation; ranked play later
 UNSUPPORTED_GPU_CODE = 24  # the game found no Vulkan 1.3 (GPU, driver or loader): vk_platform.h
-TITLE = "SacredFire"
+TITLE = "Momochan32"
+MACOS = sys.platform == "darwin"
 GAME = "Crash Team Racing: Nitro-Fueled"
 
 # Choices: (label, value); the first is the default.
@@ -73,6 +75,20 @@ LANGUAGES = [("English", "1"), ("Spanish (Latin America)", "20"), ("French", "2"
 LANGUAGES_EU = [("English", "1"), ("Spanish (Spain)", "3"), ("French", "2"), ("German", "4"),
                 ("Italian", "5"), ("Arabic", "21")]
 REGIONS = {"CUSA13795": "USA", "CUSA14876": "EU"}
+# The community this fork is built on (Settings page, Credits).
+CREDITS = [
+    ("SacredFire / OCTR (T3CHNOLOG1C, Ryu7w7)", "The native PC port and RyuNET online play this fork is based on"),
+    ("CTR-NitroFueled-PC (GetLostIn)", "PC port research: MSAA, fur and other rendering fixes"),
+    ("bbport", "The native PS4 runtime design the port grew from"),
+    ("shadPS4 team", "The PS4 graphics core and shader recompiler"),
+    ("Mesa KosmicKrisp", "The Vulkan driver on Apple Metal that makes the Mac version possible"),
+    ("tcosi", "21:9 and 32:9 layouts: menus, backgrounds and HUD"),
+    ("illusion (PS-Game-Patch)", "60 FPS unlock and motion blur patches"),
+    ("TroyWarez", "PS4 Pro 1080p resolution patch"),
+    ("Camiloop", "Unlock Everything patch"),
+    ("AMD FidelityFX", "FSR 3.1 upscaling"),
+    ("Crash Team Racing community", "Players, testers and everyone keeping online play alive"),
+]
 
 
 def languages_for(title):
@@ -91,6 +107,9 @@ def language_for(title, saved):
     return "1"
 PRESENT_MODES = [("Mailbox", "Mailbox"), ("FIFO (VSync)", "Fifo"),
                  ("FIFO Relaxed", "FifoRelaxed"), ("Immediate", "Immediate")]
+if sys.platform == "darwin":
+    # Momochan32 (macOS): the Metal swapchain offers FIFO only (VSync at the display's refresh).
+    PRESENT_MODES = [("FIFO (VSync)", "Fifo")]
 # The game's FPS limit (bbport.ini fps_limit; the in-game menu offers the same values). Above 30
 # it needs the 60 FPS patch.
 FPS_LIMITS = [("No limit", "0"), ("30", "30"), ("60", "60"), ("72 (half of 144 Hz)", "72"),
@@ -117,6 +136,11 @@ UPSCALERS = [("Off", "off"), ("AMD FSR 1", "fsr1"), ("AMD FSR 3 (experimental)",
 # Settings the game reads from bbport.ini itself (gpu/shim/bbport_settings.cpp), with the
 # game's defaults: the launcher shows and writes them, the in-game menu changes the same keys.
 GAME_FLAGS = {"async_pipelines": "0", "msaa": "0", "borderless": "0"}
+# Momochan32 (macOS): the settings tested on Apple Silicon. MSAA draws the 3D scene black on the Mac
+# Vulkan driver (KosmicKrisp); FSR 3 as anti-aliasing replaces it. Mailbox is not offered there.
+MAC_INI_DEFAULTS = {"show_fps": "1", "fps_limit": "240", "msaa": "0", "temporal": "fsr3",
+                    "render_res": "", "patch_60fps": "1", "patch_no_motion_blur": "1",
+                    "patch_pro_1080p": "1", "patch_unlock_all": "1"}
 VOLUME_DEFAULT = 100
 # Patches with a bbport.ini key of their own (shared with the in-game menu); other patches are
 # switched in patches.json (scripts/patches.py GAME_PATCH_KEYS).
@@ -138,11 +162,11 @@ DEFAULTS = {
     "game_dir": "" if PACKAGED else str(PORT_DIR / "orig" / "CUSA13795"),
     "user_dir": "",
     "language": "1",
-    "fullscreen": False,
-    "present_mode": "Mailbox",
+    "fullscreen": MACOS,
+    "present_mode": "Fifo" if MACOS else "Mailbox",
     "gamepad": "",
     "gamepad_name": "",
-    "neo": False,
+    "neo": MACOS,
     "clear_shader_cache": False,
     "frame_stats": False,
     "save_log": False,
@@ -225,6 +249,8 @@ PAD_LABELS = {
 }
 MAX_KEYS = 4  # bindings per input, as in the Windows launcher
 INI_DEFAULTS = {"show_fps": "0", "fps_limit": "60", **{key: "0" for key in INI_PATCHES.values()}}
+if MACOS:
+    INI_DEFAULTS.update(MAC_INI_DEFAULTS)
 # RyuNET online (run.py setup_online reads the same bbport.ini keys). The nickname is the
 # player's identity on the server: the first installation to use one keeps it.
 ONLINE_SERVER = "octr.ryu7w7.xyz"
@@ -284,16 +310,35 @@ def save_ini(values, lines):
                 continue
         out.append(line)
     if not lines:
-        out.append("# SacredFire / bbport settings (in-game menu: Insert / L3+R3)")
+        out.append("# Momochan32 / bbport settings (in-game menu: Shift+W, F1, Insert / L3+R3)")
     for key, value in values.items():
         if key not in written and value is not None:
             out.append(f"{key}={value}")
     ini_path().write_text("\n".join(out) + "\n")
 
 
+# Momochan32 (macOS): what the macOS build needs, whatever started the launcher. Tuned on an M3 Max:
+# guest memory imported into Vulkan, two frames in flight, six recording threads.
+MAC_ENV = {
+    "BB_PREBUILT": "1",
+    "BB_PROBE": str(PORT_DIR / "out" / "gpu-mac" / "sacredfire"),
+    "VK_ICD_FILENAMES": str(PORT_DIR / "out" / "gpu-mac" / "kosmickrisp_mesa_icd.json"),
+    "ROSETTA_ADVERTISE_AVX": "1",
+    "BB_GUEST_GPU_MEMORY": "1",
+    "BB_FRAMES_AHEAD": "2",
+    "BB_VK_RECORD_THREADS": "6",
+    "BB_TIMEOUT": "0",
+}
+
+
 def game_environment(s):
     """Environment for run.sh from the launcher settings."""
     env = dict(os.environ)
+    if MACOS:
+        env.pop("BB_NO_MSAA", None)
+        for key, value in MAC_ENV.items():
+            env.setdefault(key, value)
+        env["PATH"] = "/opt/homebrew/bin:" + env.get("PATH", "")
     env["BB_GAME_DIR"] = str(Path(s["game_dir"]).expanduser())
     if s["user_dir"]:
         env["BB_USER_DIR"] = s["user_dir"]
@@ -912,7 +957,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         super().__init__(application=app, title=f"{TITLE} {port_version()}".rstrip())
         if install_game_icon(self.settings["game_dir"] if hasattr(self, "settings") else load_settings()["game_dir"]):
             self.set_icon_name(APP_ID)
-        self.set_default_size(980, 760)
+        self.set_default_size(1200, 820)
         self.set_size_request(360, 420)
         self.settings = load_settings()
         set_language(self.settings.get("ui_language", ""))
@@ -971,7 +1016,8 @@ class LauncherWindow(Adw.ApplicationWindow):
                       ("trophies", tr("Achievements"), "starred-symbolic", tr("Progress")),
                       ("log", tr("Log"), "utilities-terminal-symbolic", tr("Progress"))]
         self.split = Adw.OverlaySplitView(sidebar=self.build_sidebar(), content=toolbar,
-                                          min_sidebar_width=200, max_sidebar_width=250)
+                                          min_sidebar_width=280, max_sidebar_width=340,
+                                          sidebar_width_fraction=0.28)
         self.sidebar_button.connect("toggled", lambda b: self.split.set_show_sidebar(b.get_active()))
         self.split.connect("notify::show-sidebar",
                            lambda *_: self.sidebar_button.set_active(self.split.get_show_sidebar()))
@@ -1250,7 +1296,7 @@ class LauncherWindow(Adw.ApplicationWindow):
             subtitle=tr("The PS4's 2x anti-aliasing. Off by default: on PC it draws dotted lines in the sky and in light "
                         "shafts. At high internal resolutions or with FSR it is barely missed. Needs a restart."),
             active=self.ini.get("msaa") == "1")
-        # SacredFire (macOS): the Mac Vulkan driver cannot draw the game's MSAA scene (3D goes black).
+        # Momochan32 (macOS): the Mac Vulkan driver cannot draw the game's MSAA scene (3D goes black).
         if sys.platform != "darwin":
             screen.add(self.msaa_row)
         temporal = self.ini.get("temporal", "")
@@ -1359,7 +1405,11 @@ class LauncherWindow(Adw.ApplicationWindow):
         check_button.connect("clicked", lambda _b: self.check_update(manual=True))
         self.version_row.add_suffix(check_button)
         about.add(self.version_row)
+        if MACOS:
+            check_button.set_visible(False)  # the releases are SacredFire's (Linux, Windows)
+            self.version_row.set_subtitle(tr("macOS build of this fork"))
         page.add(about)
+        page.add(self.credits_group())
         self.update_user_status()
         return page
 
@@ -3067,10 +3117,12 @@ class LauncherWindow(Adw.ApplicationWindow):
         launcher.set_environ([f"{k}={v}" for k, v in self.environment().items()])
         launcher.set_cwd(str(PORT_DIR))
         try:
-            if sys.platform == "darwin":
-                # SacredFire (macOS): no setsid; run.sh needs bash 5 and the macOS build (BB_PROBE).
-                launcher.setenv("BB_PREBUILT", "1", True)
-                self.process = launcher.spawnv(["/opt/homebrew/bin/bash", str(PORT_DIR / "run.sh")])
+            if MACOS:
+                # Momochan32 (macOS): no setsid program; a new session (so Stop reaches the game and
+                # run.sh together) and bash 5 from Homebrew, which run.sh needs.
+                self.process = launcher.spawnv([
+                    sys.executable, "-c", "import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])",
+                    "/opt/homebrew/bin/bash", str(PORT_DIR / "run.sh")])
             else:
                 self.process = launcher.spawnv(["setsid", "bash", str(PORT_DIR / "run.sh")])
         except GLib.Error as error:
@@ -3101,6 +3153,16 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.append_log(line + "\n")
         self.note_issue_line(line)
         self.read_line()
+
+    def credits_group(self):
+        """The people whose work this fork stands on."""
+        group = Adw.PreferencesGroup(
+            title=tr("Credits"),
+            description=tr("Momochan32 is a personal macOS fork. All the work below belongs to its authors "
+                           "and the community: thank you."))
+        for name, role in CREDITS:
+            group.add(Adw.ActionRow(title=name, subtitle=tr(role)))
+        return group
 
     def stop_game(self):
         if not self.process:
@@ -3173,14 +3235,15 @@ def play():
     settings = load_settings()
     set_language(settings.get("ui_language", ""))
     if not (Path(settings["game_dir"]).expanduser() / "eboot.bin").is_file():
-        print("SacredFire: choose the game folder in the launcher first", file=sys.stderr)
+        print("Momochan32: choose the game folder in the launcher first", file=sys.stderr)
         return 1
     os.chdir(PORT_DIR)
     env = game_environment(settings)
     steam_shortcuts.stable_appimage_link()
+    bash = "/opt/homebrew/bin/bash" if MACOS else "bash"  # macOS: run.sh needs bash 5
     if not settings.get("discord_rpc", True):
-        os.execvpe("bash", ["bash", str(PORT_DIR / "run.sh")], env)  # nothing to do alongside
-    child = subprocess.Popen(["bash", str(PORT_DIR / "run.sh")], env=env)
+        os.execvpe(bash, ["bash", str(PORT_DIR / "run.sh")], env)  # nothing to do alongside
+    child = subprocess.Popen([bash, str(PORT_DIR / "run.sh")], env=env)
 
     def forward(signum, _frame):
         # Steam stops the game by signalling this process: the game gets it too.
