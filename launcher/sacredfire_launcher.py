@@ -63,7 +63,8 @@ MAX_LOG_LINES = 5000
 COMMUNITY_DISCORD = "https://discord.gg/PAT5SJzdXw"  # bugs, questions, ban appeals
 RANK_SITE = "https://crashteamrank.vercel.app"  # record validation; ranked play later
 UNSUPPORTED_GPU_CODE = 24  # the game found no Vulkan 1.3 (GPU, driver or loader): vk_platform.h
-TITLE = "Momochan32"
+TITLE = "CTR-Online on Mac (By Momochan32)"
+SHORT_TITLE, BYLINE = "CTR-Online on Mac", "By Momochan32"  # the sidebar header: two lines
 MACOS = sys.platform == "darwin"
 GAME = "Crash Team Racing: Nitro-Fueled"
 
@@ -1045,7 +1046,7 @@ class LauncherWindow(Adw.ApplicationWindow):
     def build_sidebar(self):
         view = Adw.ToolbarView()
         header = Adw.HeaderBar(show_end_title_buttons=False)
-        header.set_title_widget(Adw.WindowTitle(title=TITLE, subtitle=port_version()))
+        header.set_title_widget(Adw.WindowTitle(title=SHORT_TITLE, subtitle=BYLINE))
         view.add_top_bar(header)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         box.add_css_class("sf-sidebar")
