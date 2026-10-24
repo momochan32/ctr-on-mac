@@ -20,7 +20,9 @@
 #else
 #include <sys/syscall.h>
 #include <sys/mman.h>
+#ifndef __APPLE__
 #include <asm/prctl.h>
+#endif
 #endif
 #define ERR(n) ((int32_t)(UINT32_C(0x80020000)|(n)))
 #define ATTR_MAGIC UINT32_C(0x41545452)
@@ -83,6 +85,23 @@ static void set_gs(void *base) {
     if (!TlsSetValue(tls_slot,base)) { fprintf(stderr,"STOP: TlsSetValue failed (%lu)\n",GetLastError()); exit(21); }
 }
 #define tls_block_alloc(size) _aligned_malloc(size,64)
+#elif defined(__APPLE__)
+/* macOS: GS is the pthread TSD array (also under Rosetta 2) and cannot be moved. The guest TCB
+ * is a pthread key's value instead, read by the rewritten load as `mov rax, gs:[8*key]`. */
+static pthread_key_t tcb_key;
+static pthread_once_t tcb_key_once=PTHREAD_ONCE_INIT;
+static void tcb_key_create(void) {
+    if (pthread_key_create(&tcb_key,NULL)) { fputs("STOP: pthread_key_create failed\n",stderr); exit(21); }
+}
+uint32_t runtime_thread_tcb_offset(void) {
+    pthread_once(&tcb_key_once,tcb_key_create);
+    return 8*(uint32_t)tcb_key;
+}
+static void set_gs(void *base) {
+    runtime_thread_tcb_offset();
+    if (pthread_setspecific(tcb_key,base)) { fputs("STOP: pthread_setspecific failed\n",stderr); exit(21); }
+}
+#define tls_block_alloc(size) aligned_alloc(64,size)
 #else
 static void set_gs(void *base) {
     if (syscall(SYS_arch_prctl,ARCH_SET_GS,(unsigned long)base)) { perror("STOP: arch_prctl(ARCH_SET_GS)"); exit(21); }
@@ -187,14 +206,23 @@ static ABI int32_t attr_get(void *thread,ThreadAttr **out) {
     a->detached=t->detached;
 #ifndef _WIN32
     /* A running thread's stack: the top a->stack bytes of its host stack (the margin is below). */
+#ifdef __APPLE__
+    {
+        const size_t size=pthread_get_stacksize_np(t->host);
+        void *base=(char *)pthread_get_stackaddr_np(t->host)-size;
+        {
+#else
     pthread_attr_t host;
     if (!pthread_getattr_np(t->host,&host)) {
         void *base; size_t size;
         if (!pthread_attr_getstack(&host,&base,&size)) {
+#endif
             if (a->stack==0 || a->stack>size) a->stack=size;
             a->stack_addr=(char *)base+size-a->stack;
         }
+#ifndef __APPLE__
         pthread_attr_destroy(&host);
+#endif
     }
 #endif
     return 0;
@@ -272,7 +300,11 @@ static ABI int32_t attr_set_guard(ThreadAttr **slot,uint64_t size) {
 static void set_host_name(const char *name) {
     char host[16]={0};
     memcpy(host,name,strnlen(name,sizeof(host)-1));
+#ifdef __APPLE__
+    pthread_setname_np(host);
+#else
     pthread_setname_np(pthread_self(),host);
+#endif
 }
 #ifdef _WIN32
 #define exit_setjmp(t) bb_setjmp((t)->exit_jump)
@@ -389,6 +421,8 @@ static ABI int32_t thread_getname(GuestThread *t,char *name) {
 }
 #ifdef _WIN32
 static ABI int32_t thread_getthreadid(void) { return (int32_t)compat_thread_id(); }
+#elif defined(__APPLE__)
+static ABI int32_t thread_getthreadid(void) { uint64_t id=0; pthread_threadid_np(NULL,&id); return (int32_t)id; }
 #else
 static ABI int32_t thread_getthreadid(void) { return (int32_t)syscall(SYS_gettid); }
 #endif

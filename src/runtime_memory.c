@@ -390,6 +390,10 @@ static void *map_phys(uintptr_t address, uint64_t size, int prot, uint64_t phys)
     return (void *)address;
 }
 /* Returns released physical memory to zero: hole punching in the memfd, a clear in a chunk. */
+#ifdef __APPLE__
+/* macOS shared memory cannot punch holes: the pages are cleared through the backing view. */
+#define fallocate(fd, mode, offset, length) memset(backing_base+(offset),0,(size_t)(length))
+#endif
 static void zero_phys(uint64_t phys, uint64_t size) {
     for (uint64_t done=0;done<size;) {
         const uint64_t at=phys+done;
@@ -872,6 +876,9 @@ void *runtime_low_map(size_t size, int prot) {
     while (low_next+size<=USER_MIN) {
         p=mmap((void *)low_next,size,prot,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
         low_next+=size+PAGE; /* unmapped gap catches overruns */
+#ifdef __APPLE__
+        if (p!=MAP_FAILED && p!=(void *)(low_next-size-PAGE)) { munmap(p,size); p=MAP_FAILED; }
+#endif
         if (p!=MAP_FAILED) break;
     }
     write_unlock();

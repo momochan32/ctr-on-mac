@@ -16,7 +16,13 @@
 #include <sys/syscall.h>
 #include <dlfcn.h>
 #include <dirent.h>
+#ifdef __APPLE__
+#include <sys/ucontext.h>
+#else
 #include <ucontext.h>
+#define BB_UC_RIP(uc) ((uc)->uc_mcontext.gregs[REG_RIP])
+#define BB_UC_RSP(uc) ((uc)->uc_mcontext.gregs[REG_RSP])
+#endif
 #include <signal.h>
 #include <sys/uio.h>
 #include <sys/random.h>
@@ -481,6 +487,8 @@ typedef struct { _Atomic uint64_t key; uint64_t site, site2, site3; int tid, kin
 static WaitSite wait_sites[512];
 #ifdef _WIN32
 static int host_tid(void) { return (int)compat_thread_id(); }
+#elif defined(__APPLE__)
+static int host_tid(void) { uint64_t id=0; pthread_threadid_np(NULL,&id); return (int)id; }
 #else
 static int host_tid(void) { return (int)syscall(SYS_gettid); }
 #endif
@@ -491,7 +499,7 @@ static void guest_call_sites(uint64_t out[3]) {
     const uintptr_t text_lo=0x800000000ull, text_hi=0x800000000ull+0x50d96dcull;
     static _Thread_local uintptr_t stack_hi;
     if (!stack_hi) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
         stack_hi=compat_thread_stack_high();
 #else
         pthread_attr_t attr; void *base=NULL; size_t size=0;
@@ -560,13 +568,13 @@ static _Atomic uint64_t samples_total;
 static void sample_handler(int sig, siginfo_t *info, void *context) {
     (void)sig; (void)info;
     const ucontext_t *uc=(const ucontext_t *)context;
-    uint64_t rip=(uint64_t)uc->uc_mcontext.gregs[REG_RIP];
+    uint64_t rip=(uint64_t)BB_UC_RIP(uc);
     const uint64_t text_lo=0x800000000ull, text_hi=0x800000000ull+0x50d96dcull;
     /* Host code: keyed with its guest caller, the first return address into the game on the stack. */
     uint64_t caller=0;
     if (rip<text_lo || rip>=text_hi) {
         uint64_t stack[256]={0};
-        struct iovec local={stack,sizeof(stack)}, remote={(void *)uc->uc_mcontext.gregs[REG_RSP],sizeof(stack)};
+        struct iovec local={stack,sizeof(stack)}, remote={(void *)BB_UC_RSP(uc),sizeof(stack)};
         const ssize_t got=process_vm_readv(getpid(),&local,1,&remote,1,0);
         for (ssize_t i=0;i<got/8;++i) if (stack[i]>=text_lo && stack[i]<text_hi) { caller=stack[i]-text_lo; break; }
     }
@@ -584,6 +592,11 @@ static void sample_handler(int sig, siginfo_t *info, void *context) {
 }
 static void *sampler_main(void *arg) {
     const char *name=(const char *)arg;
+#ifdef __APPLE__
+    /* No /proc or tgkill: the sampler is a Linux diagnostic. */
+    fprintf(stderr,"Runtime: thread sampling (%s) is not available on macOS\n",name);
+    return NULL;
+#endif
     pid_t tid=0;
     while (!tid) {
         DIR *dir=opendir("/proc/self/task");
@@ -601,7 +614,9 @@ static void *sampler_main(void *arg) {
     }
     printf("Runtime: sampling thread %s (%d)\n",name,(int)tid);
     for (;;) {
+#ifndef __APPLE__
         if (syscall(SYS_tgkill,getpid(),tid,SIGPROF)) break;
+#endif
         struct timespec t={0,500000};
         nanosleep(&t,NULL);
     }

@@ -12,6 +12,7 @@ typedef bb_jmp_buf sigjmp_buf;
 #define sigsetjmp(buffer, save) bb_setjmp(buffer)
 #else
 #include <setjmp.h>
+#include "compat_mac.h"
 #endif
 /* Recovery point for speculative guest memory reads on this thread (probe.c fault handler). */
 extern __thread sigjmp_buf *runtime_fault_recover;
