@@ -33,6 +33,9 @@
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
+#ifdef __APPLE__
+#include <spawn.h>
+#endif
 #endif
 
 typedef struct { uint64_t address, size, flags; } Segment;
@@ -905,13 +908,25 @@ void runtime_restart(void) {
 #else
     puts("Runtime: restarting through run.sh");
 #ifdef __APPLE__
-    for (int fd=3, max=(int)sysconf(_SC_OPEN_MAX); fd<max; ++fd) close(fd);
+    /* macOS: the process image is replaced in one step (POSIX_SPAWN_SETEXEC) and every
+     * descriptor but stdin/out/err closed by the kernel (CLOEXEC_DEFAULT): closing them one by
+     * one while the GPU and Cocoa threads still ran ended the process before the exec. run.sh
+     * needs bash 5 (Homebrew); the system's bash 3.2 cannot run it. */
+    {
+        extern char **environ;
+        posix_spawnattr_t attr;
+        posix_spawn_file_actions_t files;
+        posix_spawnattr_init(&attr);
+        posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETEXEC | POSIX_SPAWN_CLOEXEC_DEFAULT);
+        posix_spawn_file_actions_init(&files);
+        for (int fd = 0; fd < 3; ++fd) posix_spawn_file_actions_addinherit_np(&files, fd);
+        char *args[] = {"bash", "run.sh", NULL};
+        const int error = posix_spawn(NULL, "/opt/homebrew/bin/bash", &files, &attr, args, environ);
+        fprintf(stderr, "runtime_restart: posix_spawn failed (%s)\n", strerror(error));
+        _exit(1);
+    }
 #else
     syscall(SYS_close_range, 3u, ~0u, 0u);
-#endif
-#ifdef __APPLE__
-    /* macOS: run.sh needs bash 5 (Homebrew); the system's bash 3.2 cannot run it. */
-    execl("/opt/homebrew/bin/bash", "bash", "run.sh", (char *)NULL);
 #endif
     execlp("bash", "bash", "run.sh", (char *)NULL);
     perror("runtime_restart: exec");
