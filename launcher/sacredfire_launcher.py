@@ -320,10 +320,12 @@ def save_ini(values, lines):
 
 # Momochan32 (macOS): what the macOS build needs, whatever started the launcher. Tuned on an M3 Max:
 # guest memory imported into Vulkan, two frames in flight, six recording threads.
+# The app bundle carries the game executable in bin/; a checkout has it in out/gpu-mac/.
+MAC_BIN = PORT_DIR / "bin" if (PORT_DIR / "bin" / "sacredfire").is_file() else PORT_DIR / "out" / "gpu-mac"
 MAC_ENV = {
     "BB_PREBUILT": "1",
-    "BB_PROBE": str(PORT_DIR / "out" / "gpu-mac" / "sacredfire"),
-    "VK_ICD_FILENAMES": str(PORT_DIR / "out" / "gpu-mac" / "kosmickrisp_mesa_icd.json"),
+    "BB_PROBE": str(MAC_BIN / "sacredfire"),
+    "VK_ICD_FILENAMES": str(MAC_BIN / "kosmickrisp_mesa_icd.json"),
     "ROSETTA_ADVERTISE_AVX": "1",
     "BB_GUEST_GPU_MEMORY": "1",
     "BB_FRAMES_AHEAD": "2",
