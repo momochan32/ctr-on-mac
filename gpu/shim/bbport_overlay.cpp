@@ -2016,9 +2016,11 @@ bool HandleEvent(const SDL_Event& event) {
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
         const bool down = event.type == SDL_EVENT_KEY_DOWN;
-        if (down && !event.key.repeat &&
-            (event.key.key == SDLK_INSERT || (menu_open && event.key.key == SDLK_ESCAPE))) {
-            SetOpen(event.key.key == SDLK_INSERT ? !is_open : false);
+        // SacredFire (macOS): Mac keyboards have no Insert key; F1 and Shift+W toggle the menu too.
+        const bool toggle = event.key.key == SDLK_INSERT || event.key.key == SDLK_F1 ||
+                            (event.key.key == SDLK_W && (event.key.mod & SDL_KMOD_SHIFT));
+        if (down && !event.key.repeat && (toggle || (menu_open && event.key.key == SDLK_ESCAPE))) {
+            SetOpen(toggle ? !is_open : false);
             return true;
         }
         if (!is_open) {

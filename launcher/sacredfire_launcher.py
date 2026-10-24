@@ -3065,7 +3065,12 @@ class LauncherWindow(Adw.ApplicationWindow):
         launcher.set_environ([f"{k}={v}" for k, v in self.environment().items()])
         launcher.set_cwd(str(PORT_DIR))
         try:
-            self.process = launcher.spawnv(["setsid", "bash", str(PORT_DIR / "run.sh")])
+            if sys.platform == "darwin":
+                # SacredFire (macOS): no setsid; run.sh needs bash 5 and the macOS build (BB_PROBE).
+                launcher.setenv("BB_PREBUILT", "1", True)
+                self.process = launcher.spawnv(["/opt/homebrew/bin/bash", str(PORT_DIR / "run.sh")])
+            else:
+                self.process = launcher.spawnv(["setsid", "bash", str(PORT_DIR / "run.sh")])
         except GLib.Error as error:
             self.toasts.add_toast(Adw.Toast(title=tr("Could not start: {}").format(error.message)))
             return
