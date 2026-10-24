@@ -1250,7 +1250,9 @@ class LauncherWindow(Adw.ApplicationWindow):
             subtitle=tr("The PS4's 2x anti-aliasing. Off by default: on PC it draws dotted lines in the sky and in light "
                         "shafts. At high internal resolutions or with FSR it is barely missed. Needs a restart."),
             active=self.ini.get("msaa") == "1")
-        screen.add(self.msaa_row)
+        # SacredFire (macOS): the Mac Vulkan driver cannot draw the game's MSAA scene (3D goes black).
+        if sys.platform != "darwin":
+            screen.add(self.msaa_row)
         temporal = self.ini.get("temporal", "")
         if temporal not in [v for _l, v in UPSCALERS]:
             # Older settings: fsr1=1 / fsr3=1; "dlss" (a Windows setting) runs FSR 3 here.
@@ -1563,7 +1565,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.ini["split_auto"] = "1" if self.split_auto_row.get_active() else "0"
         self.ini["button_prompts"] = combo_value(self.button_prompts_row)
         self.ini["async_pipelines"] = "1" if self.async_row.get_active() else "0"
-        self.ini["msaa"] = "1" if self.msaa_row.get_active() else "0"
+        self.ini["msaa"] = "1" if self.msaa_row.get_active() and sys.platform != "darwin" else "0"
         self.ini["borderless"] = "1" if self.borderless_row.get_active() else "0"
         self.ini["temporal"] = combo_value(self.upscaler_row)
         self.ini["fsr1"] = self.ini["fsr3"] = None  # older keys: temporal decides

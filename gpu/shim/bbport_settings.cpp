@@ -499,6 +499,9 @@ const char* UpscalerName(int upscaler) {
 
 namespace AmdGpu {
 bool BbNoMsaa() {
+#ifdef __APPLE__
+    return true; // SacredFire (macOS): the game's MSAA scene draws black on the Mac Vulkan driver
+#endif
     static const bool value = [] {
         if (const char* env = std::getenv("BB_NO_MSAA")) {
             return env[0] == '1';
