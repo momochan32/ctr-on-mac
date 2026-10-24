@@ -15,6 +15,10 @@ Ini fork pribadi dari [SacredFire / OCTR](https://github.com/T3CHNOLOG1C/SacredF
 | ![Ultrawide race](docs/macos/race-ultrawide-21x9.jpg) | ![MacBook race](docs/macos/race-macbook-1440p.jpg) |
 | ![Ultrawide intro](docs/macos/intro-ultrawide-21x9.jpg) | ![MacBook race 66 FPS](docs/macos/race-macbook-66fps.jpg) |
 
+| Online: memuat balapan (FPS + ping ke pemain lain) | Online: balapan dengan pemain lain (61 FPS) |
+|---|---|
+| ![Online loading](docs/macos/online-loading-ping.jpg) | ![Online race](docs/macos/online-race-ultrawide.jpg) |
+
 | Lobby online | Pilih kart |
 |---|---|
 | ![Online lobby](docs/macos/online-lobby.jpg) | ![Kart select](docs/macos/kart-select.jpg) |

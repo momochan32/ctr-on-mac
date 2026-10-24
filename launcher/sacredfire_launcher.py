@@ -60,7 +60,9 @@ DATA_DIR = Path(os.environ.get("BB_DATA_DIR", PORT_DIR))
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "sacredfire-launcher"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
 MAX_LOG_LINES = 5000
-COMMUNITY_DISCORD = "https://discord.gg/PAT5SJzdXw"  # bugs, questions, ban appeals
+COMMUNITY_DISCORD = "https://discord.gg/PAT5SJzdXw"  # the RyuNET server's community: bans, appeals
+# Momochan32: this fork's own group for the Mac version (help, updates). Empty: the row is hidden.
+COMMUNITY_TELEGRAM = ""
 RANK_SITE = "https://crashteamrank.vercel.app"  # record validation; ranked play later
 UNSUPPORTED_GPU_CODE = 24  # the game found no Vulkan 1.3 (GPU, driver or loader): vk_platform.h
 TITLE = "CTR-Online on Mac (By Momochan32)"
@@ -179,7 +181,7 @@ DEFAULTS = {
     "dlc_disabled": "",
     # Discord: the game in the player's status while it runs, with invites; "Ask to Join"
     # requests accepted. discord_app_id names another Discord application (empty: ours).
-    "discord_rpc": True,
+    "discord_rpc": not MACOS,  # the status names SacredFire's Discord application
     "discord_accept_requests": True,
     "discord_app_id": "",
     # The monitor for the game ("": the primary; else its number, BB_DISPLAY), and the launcher
@@ -1236,9 +1238,15 @@ class LauncherWindow(Adw.ApplicationWindow):
             description="\n".join("• " + rule for rule in online_rules) + "\n\n" +
             tr("Breaking the rules can cost you your records and a ban from online play, temporary or permanent, "
                "also by IP."))
-        for title, button, url in (
-                (tr("Bugs, questions or a ban appeal: our Discord"), tr("Open Discord"), COMMUNITY_DISCORD),
-                (tr("Crash Team Rank: validate your records (ranked play with MMR coming)"), tr("Open page"), RANK_SITE)):
+        links = []
+        if COMMUNITY_TELEGRAM:
+            links.append((tr("CTR-Online on Mac: help and updates in our Telegram group"), tr("Open Telegram"),
+                          COMMUNITY_TELEGRAM))
+        # The online server is OCTR's (RyuNET): its rules, bans and appeals are handled in their Discord.
+        links += [(tr("Online server (OCTR / RyuNET): ban appeals and server questions in their Discord"),
+                   tr("Open Discord"), COMMUNITY_DISCORD),
+                  (tr("Crash Team Rank: validate your records (ranked play with MMR coming)"), tr("Open page"), RANK_SITE)]
+        for title, button, url in links:
             row = Adw.ActionRow(title=title)
             row.set_title_lines(0)
             open_button = flat_button("web-browser-symbolic", button, lambda _b, url=url: open_external(url))
