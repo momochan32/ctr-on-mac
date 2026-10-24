@@ -50,6 +50,104 @@ std::uint32_t FindType(std::uint32_t bits) {
     return ~0u;
 }
 
+#ifdef __APPLE__
+/// macOS: no dma-buf. The chunk is shared memory the runtime maps at the game's addresses; a
+/// view of it here is imported into Vulkan as a host allocation, so the GPU reads the same pages.
+int AllocChunk(u64 phys, u64 size) {
+    {
+        std::scoped_lock lk{mutex};
+        if (chunk_count == MaxChunks) {
+            return -1;
+        }
+    }
+    static std::atomic<int> failures{0};
+    const auto fail = [&](const char* what, vk::Result result, int fd) {
+        if (fd >= 0) {
+            close(fd);
+        }
+        if (failures.fetch_add(1) < 4) {
+            std::fprintf(stderr, "Guest memory: %s failed (%s); chunk %#llx stays in shared memory\n",
+                         what, vk::to_string(result).c_str(), (unsigned long long)phys);
+        }
+        return -1;
+    };
+    const int fd = memfd_create("bb-guest-chunk", 0);
+    if (fd < 0 || ftruncate(fd, off_t(size)) != 0) {
+        return fail("shared memory", vk::Result::eErrorOutOfHostMemory, fd);
+    }
+    void* view = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (view == MAP_FAILED) {
+        return fail("mapping", vk::Result::eErrorMemoryMapFailed, fd);
+    }
+    const auto [props_result, host_props] = device.getMemoryHostPointerPropertiesEXT(
+        vk::ExternalMemoryHandleTypeFlagBits::eHostAllocationEXT, view);
+    if (props_result != vk::Result::eSuccess || !host_props.memoryTypeBits) {
+        munmap(view, size);
+        return fail("host pointer properties", props_result, fd);
+    }
+    const vk::ExternalMemoryBufferCreateInfo external{
+        .handleTypes = vk::ExternalMemoryHandleTypeFlagBits::eHostAllocationEXT,
+    };
+    const auto [buffer_result, buffer] = device.createBuffer({
+        .pNext = &external,
+        .size = size,
+        .usage = vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst |
+                 vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eUniformBuffer |
+                 vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer |
+                 vk::BufferUsageFlagBits::eIndirectBuffer,
+        .sharingMode = vk::SharingMode::eExclusive,
+    });
+    if (buffer_result != vk::Result::eSuccess) {
+        munmap(view, size);
+        return fail("buffer creation", buffer_result, fd);
+    }
+    const auto requirements = device.getBufferMemoryRequirements(buffer);
+    const std::uint32_t bits = requirements.memoryTypeBits & host_props.memoryTypeBits;
+    std::uint32_t type = ~0u;
+    for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount && type == ~0u; ++i) {
+        if (bits & (1u << i)) {
+            type = i;
+        }
+    }
+    const vk::ImportMemoryHostPointerInfoEXT import_info{
+        .handleType = vk::ExternalMemoryHandleTypeFlagBits::eHostAllocationEXT,
+        .pHostPointer = view,
+    };
+    if (type == ~0u) {
+        device.destroyBuffer(buffer);
+        munmap(view, size);
+        return fail("finding a host memory type", vk::Result::eErrorFeatureNotPresent, fd);
+    }
+    const auto [memory_result, memory] =
+        device.allocateMemory({.pNext = &import_info, .allocationSize = size, .memoryTypeIndex = type});
+    if (memory_result != vk::Result::eSuccess) {
+        device.destroyBuffer(buffer);
+        munmap(view, size);
+        return fail("host memory import", memory_result, fd);
+    }
+    if (const auto result = device.bindBufferMemory(buffer, memory, 0); result != vk::Result::eSuccess) {
+        device.freeMemory(memory);
+        device.destroyBuffer(buffer);
+        munmap(view, size);
+        return fail("binding", result, fd);
+    }
+    {
+        std::scoped_lock lk{mutex};
+        std::size_t i = chunk_count++;
+        for (; i > 0 && chunks[i - 1]->phys > phys; --i) {
+            chunks[i] = chunks[i - 1];
+        }
+        static std::uint32_t next_index = 0;
+        chunks[i] = new Chunk{phys, size, buffer, memory, next_index++};
+    }
+    const u64 total = chunk_bytes.fetch_add(size) + size;
+    std::printf("Guest memory: direct memory %#llx+%llu MiB imported into Vulkan (host memory), "
+                "%llu MiB so far\n",
+                (unsigned long long)phys, (unsigned long long)(size >> 20),
+                (unsigned long long)(total >> 20));
+    return fd; // the view stays mapped: the import refers to it
+}
+#else
 /// The runtime's chunk allocator: a dma-buf fd of `size` bytes of GPU-visible memory, or -1.
 int AllocChunk(u64 phys, u64 size) {
     {
@@ -131,6 +229,7 @@ int AllocChunk(u64 phys, u64 size) {
                 (unsigned long long)(total >> 20));
     return fd;
 }
+#endif
 } // namespace
 
 bool PcModelGpu(const Vulkan::Instance& instance) {
@@ -150,6 +249,12 @@ bool PcModelGpu(const Vulkan::Instance& instance) {
 }
 
 bool Usable(const Vulkan::Instance& instance) {
+#ifdef __APPLE__
+    if (!instance.IsGuestMemoryExportSupported()) {
+        std::printf("Guest memory: the driver cannot import host memory\n");
+    }
+    return instance.IsGuestMemoryExportSupported();
+#endif
     static const bool usable = [&] {
         if (!instance.IsGuestMemoryExportSupported()) {
             std::printf("Guest memory: the driver cannot export system memory as a dma-buf\n");
