@@ -846,6 +846,32 @@ def install_css():
         Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 
+def button_bar(*widgets):
+    """A row of buttons under the row that explains them: beside a long title and subtitle they left
+    the text a narrow column, one word a line. The buttons wrap onto a second line when narrow."""
+    flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False, column_spacing=8,
+                       row_spacing=8, max_children_per_line=8, margin_top=8, margin_bottom=10,
+                       margin_start=12, margin_end=12)
+    for widget in widgets:
+        widget.set_valign(Gtk.Align.CENTER)
+        flow.append(widget)
+    row = Adw.PreferencesRow(activatable=False, focusable=False)
+    row.set_child(flow)
+    return row
+
+
+def widen_pages(widget, width=980):
+    """Every settings page: a wider column than libadwaita's 600 px clamp, so descriptions are lines
+    of text rather than narrow strips."""
+    if isinstance(widget, Adw.Clamp):
+        widget.set_maximum_size(width)
+        widget.set_tightening_threshold(width - 200)
+    child = widget.get_first_child()
+    while child is not None:
+        widen_pages(child, width)
+        child = child.get_next_sibling()
+
+
 def flat_button(icon, tooltip, handler):
     button = Gtk.Button(icon_name=icon, valign=Gtk.Align.CENTER, tooltip_text=tooltip)
     button.add_css_class("flat")
@@ -1033,8 +1059,12 @@ class LauncherWindow(Adw.ApplicationWindow):
                     "patches": self.build_patches_page, "mods": self.build_mods_page, "dlc": self.build_dlc_page,
                     "saves": self.build_saves_page, "trophies": self.build_trophies_page, "log": self.build_log_page}
         for name, title, icon, _section in self.pages:
-            self.stack.add_titled_with_icon(builders[name](), name, title, icon)
+            page_widget = builders[name]()
+            widen_pages(page_widget)
+            self.stack.add_titled_with_icon(page_widget, name, title, icon)
         self.stack.connect("notify::visible-child-name", lambda *_: self.on_page_shown())
+        if os.environ.get("BB_LAUNCHER_PAGE"):  # opens on that page (screenshots, tests)
+            self.stack.set_visible_child_name(os.environ["BB_LAUNCHER_PAGE"])
         self.on_page_shown()
         self.update_launch_button()
         self.update_game_status()
@@ -1167,17 +1197,17 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.nick_status_row = Adw.ActionRow(title=tr("Nickname on the server"))
         self.discord_link_button = Gtk.Button(label=tr("Link with Discord"), valign=Gtk.Align.CENTER)
         self.discord_link_button.connect("clicked", lambda _b: self.start_discord_link("link"))
-        self.nick_status_row.add_suffix(self.discord_link_button)
+
         self.discord_recover_button = Gtk.Button(label=tr("Recover with Discord"), valign=Gtk.Align.CENTER)
         self.discord_recover_button.set_tooltip_text(tr("Reinstalled or on another PC? Authorize the Discord account your "
                                                         "nickname is linked to and the launcher fills it in."))
         self.discord_recover_button.connect("clicked", lambda _b: self.start_discord_link("recover"))
-        self.nick_status_row.add_suffix(self.discord_recover_button)
+
         self.discord_unlink_button = Gtk.Button(label=tr("Unlink"), valign=Gtk.Align.CENTER)
         self.discord_unlink_button.add_css_class("flat")
         self.discord_unlink_button.connect("clicked", lambda _b: self.confirm_discord_unlink())
-        self.nick_status_row.add_suffix(self.discord_unlink_button)
         online.add(self.nick_status_row)
+        online.add(button_bar(self.discord_link_button, self.discord_recover_button, self.discord_unlink_button))
         self.server_row = Adw.EntryRow(title=tr("Server"), text=self.ini.get("online_server") or ONLINE_SERVER)
         self.server_row.connect("changed", lambda _row: self.nick_changed())
         online.add(self.server_row)
@@ -2014,11 +2044,10 @@ class LauncherWindow(Adw.ApplicationWindow):
         add_button = Gtk.Button(label=tr("Add files"), valign=Gtk.Align.CENTER)
         add_button.add_css_class("suggested-action")
         add_button.connect("clicked", lambda _b: self.on_add_mods(folder=False))
-        add_files.add_suffix(add_button)
         folder_button = Gtk.Button(label=tr("Add folder"), valign=Gtk.Align.CENTER)
         folder_button.connect("clicked", lambda _b: self.on_add_mods(folder=True))
-        add_files.add_suffix(folder_button)
         intro.add(add_files)
+        intro.add(button_bar(add_button, folder_button))
         self.mods_controls = [add_button, folder_button]
         for title, url in ((tr("Find mods on GameBanana"), GAMEBANANA), (tr("Read the packaging guide"), None)):
             row = Adw.ActionRow(title=title, activatable=True)
@@ -2219,19 +2248,19 @@ class LauncherWindow(Adw.ApplicationWindow):
                                             "another PC, or a decrypted PS4 save (Apollo Save Tool, Save Wizard: a folder "
                                             "with sce_sys/param.sfo). Your saves are backed up before importing."))
         backup = Gtk.Button(label=tr("Back up now"), valign=Gtk.Align.CENTER)
+        backup.add_css_class("suggested-action")
         backup.set_sensitive(bool(slots) and not locked)
         backup.connect("clicked", lambda _b: self.on_backup_saves())
-        actions.add_suffix(backup)
         export = Gtk.Button(label=tr("Export…"), valign=Gtk.Align.CENTER)
         export.set_sensitive(bool(slots) and not locked)
         export.connect("clicked", lambda _b: self.on_export_saves())
-        actions.add_suffix(export)
         imported = Gtk.Button(label=tr("Import…"), valign=Gtk.Align.CENTER)
         imported.set_sensitive(not locked)
         imported.connect("clicked", lambda _b: self.on_import_saves())
-        actions.add_suffix(imported)
-        actions.add_suffix(flat_button("folder-symbolic", tr("Open folder"), lambda _b: open_folder(self, save_root(user))))
+        open_saves = Gtk.Button(label=tr("Open folder"), valign=Gtk.Align.CENTER)
+        open_saves.connect("clicked", lambda _b: open_folder(self, save_root(user)))
         saves.add(actions)
+        saves.add(button_bar(backup, export, imported, open_saves))
 
         backups = Adw.PreferencesGroup(title=tr("Backups"), description=str(backup_root()))
         found = list_backups()
@@ -2512,10 +2541,11 @@ class LauncherWindow(Adw.ApplicationWindow):
                                 subtitle=tr("Reads the key shadPS4 keeps (keys.json in ~/.local/share/shadPS4 or its Flatpak)."))
         import_button = Gtk.Button(label=tr("Import"), valign=Gtk.Align.CENTER)
         import_button.connect("clicked", lambda _b: self.import_shadps4_key())
-        shadps4.add_suffix(import_button)
-        shadps4.add_suffix(flat_button("document-open-symbolic", tr("Choose shadPS4's keys.json or config.toml…"),
-                                       lambda _b: self.choose_key_file()))
+        choose_button = Gtk.Button(label=tr("Choose file…"), valign=Gtk.Align.CENTER,
+                                   tooltip_text=tr("Choose shadPS4's keys.json or config.toml…"))
+        choose_button.connect("clicked", lambda _b: self.choose_key_file())
         group.add(shadps4)
+        group.add(button_bar(import_button, choose_button))
         return group
 
     def set_trophy_key(self, text, entry=None):
