@@ -13,7 +13,11 @@
 #include <pthread.h>
 #ifndef _WIN32
 #include <sys/mman.h>
+#ifdef __APPLE__
+#include <sys/ucontext.h>
+#else
 #include <ucontext.h>
+#endif
 #endif
 #include <unistd.h>
 
@@ -360,7 +364,7 @@ bool OnFault(void* ucontext, std::uint64_t address) {
                 (unsigned long long)p.seq.load(std::memory_order_relaxed),
                 (unsigned long long)(address - base), (unsigned long long)address,
                 (unsigned long long)bytes, (unsigned long long)base,
-                (unsigned long long)uc->uc_mcontext.gregs[REG_RIP], thread);
+                (unsigned long long)BbGregs(uc)[REG_RIP], thread);
             if (n > 0) {
                 const ssize_t written = write(2, line, std::min<std::size_t>(n, sizeof(line) - 1));
                 (void)written;

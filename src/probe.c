@@ -126,7 +126,12 @@ static ABI __attribute__((noreturn)) void unresolved(uint32_t id, uintptr_t argu
 #ifndef _WIN32
 /* enter_on_stack(entry, arg0, arg1, stack_top): call entry(arg0,arg1) on a new stack. */
 void enter_on_stack(void *entry, void *arg0, void *arg1, void *top);
-__asm__(".text\n.globl enter_on_stack\nenter_on_stack:\n"
+#ifdef __APPLE__
+#define BB_ASM_NAME "_enter_on_stack"
+#else
+#define BB_ASM_NAME "enter_on_stack"
+#endif
+__asm__(".text\n.globl " BB_ASM_NAME "\n" BB_ASM_NAME ":\n"
         " push %rbp\n mov %rsp,%rbp\n and $-16,%rcx\n mov %rcx,%rsp\n"
         " mov %rdi,%rax\n mov %rsi,%rdi\n mov %rdx,%rsi\n call *%rax\n"
         " mov %rbp,%rsp\n pop %rbp\n ret\n");

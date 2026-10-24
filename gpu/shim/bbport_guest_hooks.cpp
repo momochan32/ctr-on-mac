@@ -20,7 +20,11 @@ void Install(RangeCallback) {}
 #include <cstring>
 #include <sys/mman.h>
 #include <sys/uio.h>
+#ifdef __APPLE__
+#include <sys/ucontext.h>
+#else
 #include <ucontext.h>
+#endif
 #include <unistd.h>
 
 extern "C" void runtime_memory_note_write(uintptr_t address, uint64_t size);
@@ -76,7 +80,7 @@ void* LoaderCopy(void* dst, const void* src, std::size_t size) {
 struct sigaction previous_action {};
 
 void OnTrap(int sig, siginfo_t* info, void* context) {
-    auto* g = static_cast<ucontext_t*>(context)->uc_mcontext.gregs;
+    auto* g = BbGregs(static_cast<ucontext_t*>(context));
     const u64 rip = u64(g[REG_RIP]) - 1; // past the int3
     if (rip == ImageBase + ReleaseCheck) {
         const auto result = static_cast<std::int32_t>(g[REG_RAX] & 0xffffffff);

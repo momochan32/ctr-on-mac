@@ -761,7 +761,12 @@ struct PM4CmdWriteData {
 
     template <typename T>
     T Address() const {
-        return reinterpret_cast<T>(addr64);
+        // bbport (macOS): VAddr is unsigned long and u64 unsigned long long there.
+        if constexpr (std::is_pointer_v<T>) {
+            return reinterpret_cast<T>(addr64);
+        } else {
+            return static_cast<T>(addr64);
+        }
     }
 };
 
@@ -851,7 +856,12 @@ struct PM4DumpConstRam {
 
     template <typename T>
     T Address() const {
-        return reinterpret_cast<T>((u64(addr_hi) << 32u) | addr_lo);
+        const u64 address = (u64(addr_hi) << 32u) | addr_lo;
+        if constexpr (std::is_pointer_v<T>) {
+            return reinterpret_cast<T>(address);
+        } else {
+            return static_cast<T>(address);
+        }
     }
 
     [[nodiscard]] u32 Offset() const {
