@@ -416,5 +416,9 @@
   "Choose file…": "Pilih file…",
   "CTR-Online on Mac: help and updates in our Telegram group": "CTR-Online on Mac: bantuan dan update di grup Telegram kita",
   "Open Telegram": "Buka Telegram",
-  "Online server (OCTR / RyuNET): ban appeals and server questions in their Discord": "Server online (OCTR / RyuNET): banding ban dan pertanyaan server di Discord mereka"
+  "Online server (OCTR / RyuNET): ban appeals and server questions in their Discord": "Server online (OCTR / RyuNET): banding ban dan pertanyaan server di Discord mereka",
+  "The project this fork is based on: RyuNET online, launcher, mods": "Proyek yang di-fork: online RyuNET, launcher, mods",
+  "The native Linux port OCTR grew from": "Port Linux native, cikal bakal OCTR",
+  "The Windows build: MSAA, fur and other rendering fixes": "Build Windows: perbaikan MSAA, bulu karakter, dan rendering",
+  "An unofficial macOS port of OCTR by Momochan32, not affiliated with the projects below. Almost everything here is their work: thank you.": "Port macOS tidak resmi dari OCTR oleh Momochan32, tidak berafiliasi dengan proyek-proyek di bawah. Hampir semua yang ada di sini adalah karya mereka: terima kasih."
 }

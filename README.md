@@ -1,21 +1,60 @@
-# CTR-Online on Mac (By Momochan32)
+# CTR-Online on Mac — port macOS tidak resmi dari OCTR
 
-**Crash Team Racing: Nitro-Fueled berjalan native di macOS (Apple Silicon), lengkap dengan mode online RyuNET, layar ultrawide 21:9, dan launcher berbahasa Indonesia.**
+**Port macOS (Apple Silicon) dari [OCTR: CTR Nitro-Fueled PC, online](https://github.com/Ryu7w7/OCTR-NitroFueled-PC), dikerjakan oleh Momochan32.**
 
-Ini fork pribadi dari [SacredFire / OCTR](https://github.com/T3CHNOLOG1C/SacredFire), port PC native CTR-NF yang dibuat komunitas. Semua yang ada di sini berdiri di atas karya mereka (lihat [Kredit](#kredit--terima-kasih)). Fork ini menambahkan dukungan macOS: runtime, GPU, launcher, dan paket aplikasinya.
+> **Penting.** Ini **fork**, bukan proyek yang dibuat dari nol. Hampir seluruh isinya hasil kerja komunitas: cara menjalankan game di PC, grafis, mode online, patch, dan launcher. Yang dikerjakan di fork ini adalah **membuatnya bisa berjalan di macOS** (rinciannya di [Apa yang dikerjakan fork ini](#apa-yang-dikerjakan-fork-ini)).
+>
+> Proyek ini **tidak resmi**. Tidak berafiliasi dengan, tidak didukung oleh, dan bukan bagian dari tim OCTR, SacredFire, CTR-NitroFueled-PC, shadPS4, Activision, Beenox, atau Sony. Masalah pada versi Mac ini **jangan dilaporkan ke proyek-proyek tersebut**. Laporkan di [Issues repo ini](https://github.com/momochan32/ctr-on-mac/issues).
 
 ![Balapan online di monitor ultrawide 21:9](docs/macos/online-race-ultrawide.jpg)
 
 ---
 
-## Tampilan
+## Asal-usul proyek
+
+Proyek ini berdiri di atas rangkaian karya komunitas berikut:
+
+1. **[SacredFire](https://github.com/T3CHNOLOG1C/SacredFire)** (T3CHNOLOG1C): port PC native untuk Linux, berbasis desain runtime **bbport**.
+2. **[CTR-NitroFueled-PC](https://github.com/GetLostIn/CTR-NitroFueled-PC)** (GetLostIn): build Windows dari SacredFire, termasuk banyak perbaikan rendering.
+3. **[OCTR](https://github.com/Ryu7w7/OCTR-NitroFueled-PC)** (Ryu7w7 dan kontributornya): fork online (server RyuNET, lobby, matchmaking, teman), launcher, dan mods. **Repo inilah yang di-fork.** Riwayat commit-nya dipertahankan di repo ini.
+4. **CTR-Online on Mac** (repo ini): port macOS dari OCTR.
+
+Komponen pihak ketiga yang dipakai:
+- **[shadPS4](https://github.com/shadps4-emu/shadPS4)**: inti grafis PS4 dan shader recompiler (di-vendor oleh proyek asal).
+- **Mesa KosmicKrisp**: driver Vulkan di atas Metal yang membuat versi Mac ini mungkin.
+- **AMD FidelityFX (FSR 3.1)**, **SDL3**, **GTK4 / libadwaita**, **LibAtrac9**, dan library lain sesuai lisensinya masing-masing.
+
+Nama "CTR-Online on Mac" hanya nama deskriptif untuk port macOS ini. Bukan rilis resmi OCTR.
+
+---
+
+## Apa yang dikerjakan fork ini
+
+Semua perubahan bisa dilihat di riwayat commit. Garis besarnya:
+
+**Port ke macOS**
+- Runtime di macOS / Rosetta 2: pengganti API khusus Linux (`src/compat_mac.h`), TCB guest di slot `pthread` (meniru pendekatan port Windows di proyek asal), rentang memori PS4 digeser di atas area yang dipakai GPU Apple Silicon, dan page fault lewat `SIGBUS`.
+- Grafis: build library GPU untuk macOS, jendela SDL di main thread, surface Metal lewat KosmicKrisp, dan memori game diimpor ke Vulkan (`VK_EXT_external_memory_host`).
+- Penyesuaian untuk driver Mac: GPU breadcrumbs dimatikan karena membuat GPU bekerja serial, MSAA dimatikan karena hasilnya hitam, dan fallback tipe memori untuk FSR 3.1.
+- Restart dari dalam game lewat `posix_spawn`.
+
+**Launcher dan paket**
+- Default untuk Mac, Play/Stop di sesi proses sendiri, dan opsi yang tidak didukung Mac disembunyikan.
+- Terjemahan Bahasa Indonesia dan halaman kredit.
+- Aplikasi `.app` dan DMG.
+
+Fitur game (online, patch, layout 21:9, FSR, mods, pencapaian) **berasal dari proyek asal**. Fork ini hanya membuatnya berjalan di Mac.
+
+---
+
+## Tampilan di Mac
 
 | Ultrawide 21:9 (2560×1080) | MacBook Pro (fullscreen 2560×1440) |
 |---|---|
 | ![Ultrawide race](docs/macos/race-ultrawide-21x9.jpg) | ![MacBook race](docs/macos/race-macbook-1440p.jpg) |
-| ![Ultrawide intro](docs/macos/intro-ultrawide-21x9.jpg) | ![MacBook race 66 FPS](docs/macos/race-macbook-66fps.jpg) |
+| ![Ultrawide intro](docs/macos/intro-ultrawide-21x9.jpg) | ![MacBook race](docs/macos/race-macbook-66fps.jpg) |
 
-| Online: memuat balapan (FPS + ping ke pemain lain) | Online: balapan dengan pemain lain (61 FPS) |
+| Online: memuat balapan (FPS + ping) | Online: balapan dengan pemain lain |
 |---|---|
 | ![Online loading](docs/macos/online-loading-ping.jpg) | ![Online race](docs/macos/online-race-ultrawide.jpg) |
 
@@ -27,126 +66,99 @@ Ini fork pribadi dari [SacredFire / OCTR](https://github.com/T3CHNOLOG1C/SacredF
 |---|---|
 | ![Launcher](docs/macos/launcher-settings.jpg) | ![Launcher trophies](docs/macos/launcher-trophies.jpg) |
 
----
+### Hasil uji (satu perangkat: MacBook Pro M3 Max)
 
-## Hasil di MacBook Pro M3 Max
+Angka ini dari pengujian pribadi di satu Mac, bukan benchmark resmi. Hasil di Mac lain bisa berbeda.
 
 | Skenario | FPS saat balapan |
 |---|---|
-| Monitor ultrawide 2560×1080 (75 Hz), layout 21:9 | **75 (batas monitor)** |
-| Balapan **online** di ultrawide | ~61 |
+| Monitor ultrawide 2560×1080 (75 Hz), layout 21:9 | ~75 (batas monitor) |
+| Balapan online di ultrawide | ~61 |
 | Layar MacBook, mode PS4 Pro + FSR 3.1 AA | ~63–70 |
-
-Fitur yang jalan: grafis 3D lengkap (termasuk bulu karakter), patch 60 FPS, tanpa motion blur, Unlock Everything, mode PS4 Pro, FSR 3.1 (anti-aliasing dan upscaling), layout 21:9 dengan HUD di tengah, online RyuNET (lobby, matchmaking, balapan dengan pemain lain), DualSense / kontroler, save, dan pencapaian.
 
 ---
 
 ## Instalasi
 
-### 1. Yang dibutuhkan
-
-- Mac **Apple Silicon** (M1 atau lebih baru), macOS 14 ke atas
+### Yang dibutuhkan
+- Mac Apple Silicon, macOS 14 ke atas (baru dites di M3 Max)
 - **Rosetta 2**: `softwareupdate --install-rosetta --agree-to-license`
-- **Homebrew** ([brew.sh](https://brew.sh)), lalu:
+- **Homebrew** ([brew.sh](https://brew.sh)):
   ```sh
   brew install bash python gtk4 libadwaita pygobject3 adwaita-icon-theme
   ```
-- **Dump game kamu sendiri**: CTR Nitro-Fueled **CUSA13795 versi 1.21** (base + update 1.21 digabung, berisi `eboot.bin`). File game **tidak** disertakan.
+- **Game milikmu sendiri.** Dump CTR Nitro-Fueled **CUSA13795 v1.21** (base + update digabung) dari konsol/salinan yang kamu miliki secara sah. **Repo dan rilis ini tidak menyertakan, membagikan, atau menautkan file game, firmware, maupun kunci apa pun.** Jangan minta file game di Issues.
 
-### 2. Pasang aplikasinya
+### Pasang
+1. Unduh `CTR-Online-on-Mac.dmg` dari [Releases](https://github.com/momochan32/ctr-on-mac/releases).
+2. Buka DMG, lalu seret **CTR-Online on Mac** ke **Applications**.
+3. Aplikasi ini tidak ditandatangani Apple. Saat pertama kali dibuka: klik kanan → **Open** → **Open**.
 
-1. Buka **`CTR-Online on Mac.dmg`**.
-2. Seret **CTR-Online on Mac** ke folder **Applications**.
-3. Buka aplikasinya. Kalau macOS memperingatkan "aplikasi dari developer tidak dikenal": klik kanan → **Open** → **Open**.
+### Pertama kali jalan
+1. **Pengaturan → Game**: pilih folder game yang berisi `eboot.bin`.
+2. (Opsional) **Online (RyuNET)**: nyalakan dan isi nickname.
+3. Tekan **Main**. Start pertama menyiapkan shader (sekitar 2 menit).
 
-Kalau ada komponen yang belum terpasang, aplikasi akan menampilkan perintah `brew` yang perlu dijalankan.
-
-### 3. Pertama kali jalan
-
-1. Di **Pengaturan → Game**, pilih folder game (yang berisi `eboot.bin`).
-2. (Opsional) **Online (RyuNET)**: nyalakan **Main online** dan isi nickname kamu (3–16 karakter).
-3. Tekan **Main**. Start pertama menyiapkan shader untuk GPU kamu (sekitar 2 menit). Start berikutnya langsung masuk.
-
-Pengaturan, save, dan file hasil olahan disimpan di `~/Library/Application Support/CTR-Online`.
+Pengaturan dan save disimpan di `~/Library/Application Support/CTR-Online`. Menu di dalam game dibuka dengan **Shift + W** (atau F1 / Insert / L3+R3).
 
 ---
 
-## Kontrol
+## Tentang mode online
 
-| Aksi | Tombol |
-|---|---|
-| Menu pengaturan di dalam game | **Shift + W** (atau F1 / Insert, atau L3+R3 di kontroler) |
-| Main / berhenti | Tombol **Main** dan **Stop** di launcher |
-
-DualSense dan kontroler lain langsung terdeteksi.
+Mode online memakai **server RyuNET milik proyek OCTR**, bukan server milik fork ini.
+- Aturan, moderasi, dan ban sepenuhnya wewenang admin OCTR. Patuhi aturan mereka (tercantum di launcher).
+- Pertanyaan atau banding soal server diajukan di komunitas OCTR (tautan Discord ada di launcher).
+- Versi Mac bisa saja berperilaku berbeda dari versi resmi. Kalau admin server meminta klien tidak resmi tidak dipakai di server mereka, permintaan itu akan dihormati.
 
 ---
 
-## Pengaturan default (sudah dites di M3 Max)
+## Batasan yang diketahui
 
-| Pengaturan | Nilai | Alasan |
-|---|---|---|
-| Mode PS4 Pro | Aktif | Grafis lebih detail, FPS sama |
-| Anti-aliasing | FSR 3.1 | Pengganti MSAA |
-| MSAA | **Mati, tidak tersedia** | Driver Vulkan di Mac menggambar scene MSAA game ini hitam |
-| Patch | 60 FPS, tanpa motion blur, Pro 1080p, Unlock Everything | |
-| Presentasi | FIFO (VSync) | Satu-satunya mode di Metal |
-| Batas FPS | 240 (dibatasi refresh rate layar) | |
-
-Catatan:
-- Layout **21:9** memakai jalur render biasa, jadi mode Pro otomatis mati saat layout ini aktif. Di layar 16:9 mode Pro aktif lagi.
-- Layar MacBook (16:10) menampilkan bar hitam tipis di atas dan bawah, karena game ini 16:9.
-- Setelah restart Mac, kalau online gagal dan kamu memakai VPN, pastikan VPN tidak memblokir UDP ke server game.
-
----
-
-## Cara kerjanya di Mac (ringkas, teknis)
-
-Kode game PS4 (x86-64) dijalankan langsung lewat **Rosetta 2**. Grafis PS4 diterjemahkan ke Vulkan, lalu ke Metal lewat **Mesa KosmicKrisp**. Perubahan utama dari versi Linux:
-
-- **TLS / data thread game**: TCB guest disimpan di slot `pthread` macOS (`gs:[8*key]`), mengikuti trik port Windows.
-- **Jendela**: Cocoa wajib di main thread, jadi kode game dipindah ke thread kedua.
-- **Memori**: Apple Silicon memakai rentang 64–448 GB untuk GPU, jadi memori PS4 digeser ke `0x7000000000` ke atas. Page fault pelacakan GPU datang sebagai `SIGBUS`.
-- **Memori bersama GPU**: memori game diimpor ke Vulkan lewat `VK_EXT_external_memory_host`, tanpa salinan.
-- **Performa**: "GPU breadcrumbs" (penanda per draw) dimatikan di Mac karena memaksa GPU bekerja serial. FPS naik ~30%. Ditambah 6 thread perekam dan 2 frame di depan.
-- **FSR 3.1**: fallback tipe memori untuk unified memory Apple.
-- **Restart dari game**: `posix_spawn` dengan `SETEXEC`.
+- MSAA tidak tersedia di Mac (driver menggambar scene MSAA hitam). FSR 3.1 dipakai sebagai gantinya.
+- Mode PS4 Pro otomatis mati saat layout 21:9 aktif (perilaku proyek asal).
+- Layar MacBook (16:10) menampilkan bar hitam tipis, karena game ini 16:9.
+- Baru dites di satu perangkat (MacBook Pro M3 Max).
 
 ---
 
 ## Build dari source
 
 ```sh
-git clone --recursive <repo> && cd octr-src
-git checkout macos-port
-# dependensi library diambil dari checkout shadPS4 (SHADPS4_EXTERNALS) dan Vulkan loader + KosmicKrisp
+git clone --recursive https://github.com/momochan32/ctr-on-mac && cd ctr-on-mac
+# library pendukung diambil dari checkout shadPS4 (SHADPS4_EXTERNALS), plus Vulkan loader + KosmicKrisp
 cmake -S gpu -B out/gpu-mac -G Ninja -DCMAKE_OSX_ARCHITECTURES=x86_64 -DBB_LTO=OFF
 ninja -C out/gpu-mac sacredfire bb-gpu-capabilities
 ./packaging/macos/make_dmg.sh        # -> out/CTR-Online on Mac.dmg
 ```
 
-Untuk pengembangan: `./play-octr-mac.command` (langsung jalan) dan `./play-octr-launcher.command` (launcher).
-
 ---
 
 ## Kredit & terima kasih
 
-Fork ini tidak akan ada tanpa komunitas berikut:
+Terima kasih kepada semua orang yang karyanya menjadi dasar port ini:
 
-- **SacredFire / OCTR**: T3CHNOLOG1C, Ryu7w7. Port PC native dan online RyuNET yang menjadi dasar fork ini.
-- **CTR-NitroFueled-PC**: GetLostIn. Riset port PC: perbaikan MSAA, bulu karakter, dan rendering.
-- **bbport**: desain runtime PS4 native tempat port ini berawal.
-- **Tim shadPS4**: inti grafis PS4 dan shader recompiler.
-- **Mesa KosmicKrisp**: driver Vulkan di atas Metal yang membuat versi Mac ini mungkin.
-- **tcosi**: layout 21:9 dan 32:9 (menu, background, HUD).
-- **illusion** (PS-Game-Patch): patch 60 FPS dan motion blur.
-- **TroyWarez**: patch resolusi PS4 Pro 1080p.
-- **Camiloop**: patch Unlock Everything.
-- **AMD FidelityFX**: FSR 3.1.
-- **Komunitas Crash Team Racing**: para pemain, tester, dan semua yang menjaga mode online tetap hidup.
+- **T3CHNOLOG1C**: SacredFire, port Linux native.
+- **GetLostIn**: CTR-NitroFueled-PC (build Windows, perbaikan MSAA, bulu karakter, rendering).
+- **Ryu7w7** dan kontributor OCTR: mode online RyuNET, server, launcher, mods, dan banyak perbaikan.
+- **Kontributor OCTR** yang disebut di riwayat rilisnya, antara lain tcosi (layout 21:9/32:9, mods), Brony666 (launcher Linux, Achievements, Mods), SoyAlejandroCalixto, Vo1dTear, n0buholic, MetaHeart, dan Naif Alqurashi. Daftar lengkapnya ada di [README-SacredFire.md](README-SacredFire.md) dan riwayat commit repo ini.
+- **bbport**: desain runtime asal.
+- **Tim shadPS4**: inti grafis dan shader recompiler.
+- **Pengembang Mesa / KosmicKrisp**: Vulkan di atas Metal.
+- **illusion** (PS-Game-Patch): patch 60 FPS dan motion blur. **TroyWarez**: patch Pro 1080p. **Camiloop**: Unlock Everything.
+- **AMD**: FidelityFX FSR 3.1.
+- **Komunitas Crash Team Racing**.
 
-## Catatan legal
+Pengerjaan port macOS dibantu oleh Claude (Anthropic) sebagai asisten pemrograman. Karena itu sebagian commit mencantumkan `Co-Authored-By: Claude`.
 
-Proyek komunitas non-komersial untuk pemakaian pribadi. Tidak berafiliasi dengan Activision, Beenox, atau Sony. Tidak ada file game yang disertakan: gunakan dump dari salinan game milikmu sendiri. Lisensi mengikuti proyek asal (GPL-2.0-or-later).
+Kalau ada nama atau karya yang terlewat atau salah disebut, kabari lewat Issues dan akan segera diperbaiki.
 
-> README asli proyek SacredFire / OCTR: [README-SacredFire.md](README-SacredFire.md)
+---
+
+## Lisensi & catatan legal
+
+- Kode berlisensi **GPL-2.0-or-later**, sama seperti proyek asal (lihat [LICENSE](LICENSE)). Komponen pihak ketiga mengikuti lisensinya masing-masing. Source lengkap untuk setiap rilis ada di repo ini.
+- *Crash Team Racing Nitro-Fueled*, *Crash Bandicoot*, dan semua merek terkait adalah milik **Activision Publishing, Inc.** *PlayStation* dan *PS4* adalah merek **Sony Interactive Entertainment**. Nama-nama tersebut dipakai hanya untuk menjelaskan kompatibilitas.
+- Proyek komunitas non-komersial untuk preservasi dan pemakaian pribadi: tidak dijual, tidak menerima donasi, dan tidak menyertakan konten berhak cipta milik pemegang hak game.
+- Pemegang hak yang keberatan dengan isi repo ini dapat menghubungi lewat Issues, dan akan segera ditindaklanjuti.
+
+> README asli proyek OCTR: [README-SacredFire.md](README-SacredFire.md)

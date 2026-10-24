@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Momochan32 launcher (GTK4 / libadwaita): runs Crash Team Racing: Nitro-Fueled natively on macOS and Linux.
-A personal fork of SacredFire (OCTR); see the Credits on the Settings page.
+An unofficial macOS port of OCTR (Ryu7w7), itself built on SacredFire and CTR-NitroFueled-PC;
+see the Credits on the Settings page.
 
 Picks the game folder (the merged 1.21 dump), the controller and the start-up options passed to
 run.sh as environment variables, edits the port's settings in bbport.ini (game patches, FPS
@@ -80,8 +81,9 @@ LANGUAGES_EU = [("English", "1"), ("Spanish (Spain)", "3"), ("French", "2"), ("G
 REGIONS = {"CUSA13795": "USA", "CUSA14876": "EU"}
 # The community this fork is built on (Settings page, Credits).
 CREDITS = [
-    ("SacredFire / OCTR (T3CHNOLOG1C, Ryu7w7)", "The native PC port and RyuNET online play this fork is based on"),
-    ("CTR-NitroFueled-PC (GetLostIn)", "PC port research: MSAA, fur and other rendering fixes"),
+    ("OCTR (Ryu7w7 and contributors)", "The project this fork is based on: RyuNET online, launcher, mods"),
+    ("SacredFire (T3CHNOLOG1C)", "The native Linux port OCTR grew from"),
+    ("CTR-NitroFueled-PC (GetLostIn)", "The Windows build: MSAA, fur and other rendering fixes"),
     ("bbport", "The native PS4 runtime design the port grew from"),
     ("shadPS4 team", "The PS4 graphics core and shader recompiler"),
     ("Mesa KosmicKrisp", "The Vulkan driver on Apple Metal that makes the Mac version possible"),
@@ -3199,8 +3201,8 @@ class LauncherWindow(Adw.ApplicationWindow):
         """The people whose work this fork stands on."""
         group = Adw.PreferencesGroup(
             title=tr("Credits"),
-            description=tr("Momochan32 is a personal macOS fork. All the work below belongs to its authors "
-                           "and the community: thank you."))
+            description=tr("An unofficial macOS port of OCTR by Momochan32, not affiliated with the projects below. "
+                           "Almost everything here is their work: thank you."))
         for name, role in CREDITS:
             group.add(Adw.ActionRow(title=name, subtitle=tr(role)))
         return group
