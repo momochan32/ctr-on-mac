@@ -18,7 +18,7 @@ cp out/gpu-mac/sacredfire out/gpu-mac/bb-gpu-capabilities out/gpu-mac/libvulkan.
    out/gpu-mac/libvulkan_kosmickrisp.dylib out/gpu-mac/kosmickrisp_mesa_icd.json "$port/bin/"
 [[ -f out/aerolib.inl ]] && mkdir -p "$port/out" && cp out/aerolib.inl "$port/out/"
 printf '%s-macos\n' "$(git describe --tags --match 'v*' --always 2>/dev/null || echo dev)" > "$port/VERSION"
-cp README-macOS.md "$stage/README.md"
+cp README.md "$stage/README.md"
 mkdir -p "$stage/docs" && cp -R docs/macos "$stage/docs/"
 ln -s /Applications "$stage/Applications"
 rm -f "out/$name.dmg"
