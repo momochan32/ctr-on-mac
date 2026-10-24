@@ -1,4 +1,7 @@
 // bbport: SDL3 window for the Vulkan swapchain (X11 or Wayland).
+#ifdef __APPLE__
+#include <SDL3/SDL_metal.h>
+#endif
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -122,6 +125,12 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
 
     const char* driver = SDL_GetCurrentVideoDriver();
     const SDL_PropertiesID wp = SDL_GetWindowProperties(window);
+#ifdef __APPLE__
+    if (driver && !std::strcmp(driver, "cocoa")) {
+        window_info.type = WindowSystemType::Metal;
+        window_info.render_surface = SDL_Metal_GetLayer(SDL_Metal_CreateView(window));
+    } else
+#endif
 #ifdef _WIN32
     if (driver && !std::strcmp(driver, "windows")) {
         window_info.type = WindowSystemType::Windows;

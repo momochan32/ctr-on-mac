@@ -209,7 +209,11 @@ void AddressSpace::Protect(VAddr virtual_addr, u64 size, MemoryPermission perms)
 }
 boost::icl::interval_set<VAddr> AddressSpace::GetUsableRegions() {
     boost::icl::interval_set<VAddr> set;
+#ifdef __APPLE__
+    set += boost::icl::interval<VAddr>::right_open(0x70'0000'0000ULL, 0xfc'0000'0000ULL);
+#else
     set += boost::icl::interval<VAddr>::right_open(0x10'0000'0000ULL, 0xfc'0000'0000ULL);
+#endif
     return set;
 }
 } // namespace Core
@@ -233,6 +237,9 @@ s32 PS4_SYSV_ABI sceKernelUsleep(u32 microseconds) {
 }
 } // namespace Libraries::Kernel
 
+#ifdef __APPLE__
+extern "C" void bb_run_on_main_thread(void (*job)(void*), void* arg); // probe.c
+#endif
 namespace {
 // SDL video must be driven from one thread: the window lives on its own host thread.
 std::thread g_window_thread;
@@ -275,7 +282,7 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
     const std::string title = config->title ? config->title : "SacredFire";
     const s32 width = config->width, height = config->height;
     const std::string icon = config->icon ? config->icon : "";
-    g_window_thread = std::thread([title, width, height, icon] {
+    auto window_loop = [title, width, height, icon] {
         Common::SetCurrentThreadName("bb:window");
         auto* window = new Frontend::WindowSDL(width, height, title.c_str());
         if (!icon.empty()) {
@@ -293,8 +300,16 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
         LOG_INFO(Frontend, "Window closed by user");
         std::fflush(stdout);
         std::_Exit(0);
-    });
+    };
+#ifdef __APPLE__
+    // macOS: Cocoa only works on the main thread, which the loader keeps free for this loop.
+    using WindowLoop = decltype(window_loop);
+    bb_run_on_main_thread([](void* loop) { (*static_cast<WindowLoop*>(loop))(); },
+                          new WindowLoop(std::move(window_loop)));
+#else
+    g_window_thread = std::thread(std::move(window_loop));
     g_window_thread.detach();
+#endif
     {
         std::unique_lock lock{g_window_mutex};
         g_window_cv.wait(lock, [] { return g_window_ready; });

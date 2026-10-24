@@ -640,7 +640,8 @@ static void fault(int sig, siginfo_t *info, void *context) {
         }
     }
     /* GPU page tracking (write-protected guest pages) is resolved first. */
-    if (gpu_enabled && sig == SIGSEGV && bbgpu_handle_fault(context, info->si_addr)) return;
+    /* macOS reports writes to protected pages as SIGBUS. */
+    if (gpu_enabled && (sig == SIGSEGV || sig == SIGBUS) && bbgpu_handle_fault(context, info->si_addr)) return;
     /* A speculative guest memory read (runtime_memory.c) failed: resume its recovery point. */
     if ((sig == SIGSEGV || sig == SIGBUS) && runtime_fault_recover) {
         sigjmp_buf *recover = runtime_fault_recover;
@@ -914,7 +915,40 @@ void runtime_restart(void) {
 #endif
 }
 
+#ifdef __APPLE__
+/* macOS: Cocoa windows belong to the main thread. The game starts on a second thread and the
+ * main thread runs the GPU library's window loop (bb_run_on_main_thread, bbgpu.cpp). */
+static pthread_mutex_t main_job_lock=PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t main_job_ready=PTHREAD_COND_INITIALIZER;
+static void (*main_job)(void *);
+static void *main_job_arg;
+void bb_run_on_main_thread(void (*job)(void *), void *arg) {
+    pthread_mutex_lock(&main_job_lock);
+    main_job=job; main_job_arg=arg;
+    pthread_cond_signal(&main_job_ready);
+    pthread_mutex_unlock(&main_job_lock);
+}
+static int probe_main(int argc, char **argv);
+static int main_argc;
+static char **main_argv;
+static void *game_thread(void *unused) { (void)unused; exit(probe_main(main_argc,main_argv)); }
 int main(int argc, char **argv) {
+    main_argc=argc; main_argv=argv;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr,64u*1024*1024);
+    pthread_t game;
+    if (pthread_create(&game,&attr,game_thread,NULL)) fail("cannot start the game thread");
+    pthread_mutex_lock(&main_job_lock);
+    while (!main_job) pthread_cond_wait(&main_job_ready,&main_job_lock);
+    pthread_mutex_unlock(&main_job_lock);
+    main_job(main_job_arg); /* the window loop: ends the process itself */
+    return 0;
+}
+static int probe_main(int argc, char **argv) {
+#else
+int main(int argc, char **argv) {
+#endif
     setvbuf(stdout, NULL, _IONBF, 0);
     if (argc == 2 && !strcmp(argv[1], "--mod-capabilities")) {
         puts("{\"file_overlays\":1}");

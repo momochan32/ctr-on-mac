@@ -40,7 +40,15 @@ static uint64_t pool_size_bytes(void) {
 #define POOL_SIZE pool_size_bytes()
 #define FLEXIBLE_SIZE (UINT64_C(448) * 1024 * 1024)
 #define PAGE UINT64_C(16384)
+#ifdef __APPLE__
+/* Apple Silicon keeps 0x1000000000-0x6fffffffff for the GPU (and the commpage at 0xfc0000000):
+ * mappings there fail with EACCES, so the PS4 user range starts above it, as in shadPS4. */
+#define USER_MIN UINT64_C(0x7000000000)
+#define LOW_MAX UINT64_C(0xfc0000000)
+#else
 #define USER_MIN UINT64_C(0x1000000000)
+#define LOW_MAX USER_MIN
+#endif
 #define USER_MAX UINT64_C(0xfc00000000)
 #define LIMIT 4096
 #define INVALID ((int32_t)UINT32_C(0x80020016))
@@ -865,7 +873,7 @@ void *runtime_low_map(size_t size, int prot) {
     write_lock();
 #ifdef _WIN32
     void *p=NULL;
-    while (!p && low_next+size<=USER_MIN) {
+    while (!p && low_next+size<=LOW_MAX) {
         p=VirtualAlloc((void *)low_next,size,MEM_RESERVE|MEM_COMMIT,win_prot(prot));
         low_next+=size+UINT64_C(65536); /* unmapped gap catches overruns; allocation granularity */
     }
@@ -873,7 +881,7 @@ void *runtime_low_map(size_t size, int prot) {
     return p;
 #else
     void *p=MAP_FAILED;
-    while (low_next+size<=USER_MIN) {
+    while (low_next+size<=LOW_MAX) {
         p=mmap((void *)low_next,size,prot,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
         low_next+=size+PAGE; /* unmapped gap catches overruns */
 #ifdef __APPLE__
