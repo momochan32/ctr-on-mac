@@ -175,6 +175,13 @@ void Init(const Instance& instance) {
         std::printf("GPU fault info: VK_EXT_device_fault on, a device loss reports its cause\n");
     }
     const char* env = std::getenv("BB_BREADCRUMBS");
+#ifdef __APPLE__
+    // SacredFire (macOS): KosmicKrisp's buffer markers drain the GPU before every command; with
+    // two a draw the frame took twice as long. Off unless BB_BREADCRUMBS=1.
+    if (!env || env[0] != '1') {
+        return;
+    }
+#endif
     if (env && env[0] == '0') {
         return;
     }
