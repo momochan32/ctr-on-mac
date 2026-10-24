@@ -145,7 +145,9 @@ GAME_FLAGS = {"async_pipelines": "0", "msaa": "0", "borderless": "0"}
 # Vulkan driver (KosmicKrisp); FSR 3 as anti-aliasing replaces it. Mailbox is not offered there.
 MAC_INI_DEFAULTS = {"show_fps": "1", "fps_limit": "240", "msaa": "0", "temporal": "fsr3",
                     "render_res": "", "patch_60fps": "1", "patch_no_motion_blur": "1",
-                    "patch_pro_1080p": "1", "patch_unlock_all": "1"}
+                    "patch_pro_1080p": "1", "patch_unlock_all": "1",
+                    # 16:9 on the laptop's own screen; the 21:9/32:9 layouts are options
+                    "widescreen_layout": "off", "ultrawide": "0", "output_res": "1920x1080"}
 VOLUME_DEFAULT = 100
 # Patches with a bbport.ini key of their own (shared with the in-game menu); other patches are
 # switched in patches.json (scripts/patches.py GAME_PATCH_KEYS).
@@ -167,7 +169,7 @@ DEFAULTS = {
     "game_dir": "" if PACKAGED else str(PORT_DIR / "orig" / "CUSA13795"),
     "user_dir": "",
     "language": "1",
-    "fullscreen": MACOS,
+    "fullscreen": False,  # a window on the main display; fullscreen and the monitor are options
     "present_mode": "Fifo" if MACOS else "Mailbox",
     "gamepad": "",
     "gamepad_name": "",
