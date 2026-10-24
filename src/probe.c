@@ -909,6 +909,10 @@ void runtime_restart(void) {
 #else
     syscall(SYS_close_range, 3u, ~0u, 0u);
 #endif
+#ifdef __APPLE__
+    /* macOS: run.sh needs bash 5 (Homebrew); the system's bash 3.2 cannot run it. */
+    execl("/opt/homebrew/bin/bash", "bash", "run.sh", (char *)NULL);
+#endif
     execlp("bash", "bash", "run.sh", (char *)NULL);
     perror("runtime_restart: exec");
     _exit(1);
