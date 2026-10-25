@@ -98,7 +98,7 @@ Tidak perlu yang lain: Python, GTK 4, dan bash sudah dibundel di dalam aplikasi 
 ### Pasang
 1. Unduh `CTR-Online-on-Mac.dmg` dari [Releases](https://github.com/momochan32/ctr-on-mac/releases).
 2. Buka DMG, lalu seret **CTR-Online on Mac** ke **Applications**.
-3. Kalau macOS bilang developer tidak bisa diverifikasi: klik kanan aplikasi → **Open** → **Open** (hanya pertama kali).
+3. Buka aplikasinya. Aplikasi ditandatangani Developer ID dan dinotarisasi Apple, jadi macOS hanya meminta konfirmasi saat pertama kali dibuka.
 
 ### Pertama kali jalan
 1. **Pengaturan → Game**: pilih folder game yang berisi `eboot.bin`.
