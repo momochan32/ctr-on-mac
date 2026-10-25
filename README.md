@@ -55,7 +55,7 @@ The game features (online, patches, 21:9 layouts, FSR, mods, achievements) **are
 
 ## Other macOS work
 
-An independent macOS port of OCTR by **Ilyo D'Urso (idurso-hidonix)** was published a few days before this one: [OCTR-NitroFueled-PC, branch `macos-apple-silicon`](https://github.com/idurso-hidonix/OCTR-NitroFueled-PC/tree/macos-apple-silicon). Both reached similar solutions for the runtime (guest TLS through a pthread key, the guest range above 0x7000000000, the window on the main thread). The main difference is the graphics driver: that port uses **MoltenVK** (with its own geometry-shader emulation for fur), this one uses **Mesa KosmicKrisp**, which supports geometry shaders natively. Thanks to them for their work and their documentation. Because MoltenVK also runs on older systems, that port may be the better choice on macOS 15 or earlier, which this one does not support.
+An independent macOS port of OCTR by **Ilyo D'Urso (idurso-hidonix)** was published a few days before this one: [OCTR-NitroFueled-PC, branch `macos-apple-silicon`](https://github.com/idurso-hidonix/OCTR-NitroFueled-PC/tree/macos-apple-silicon). Both reached similar solutions for the runtime (guest TLS through a pthread key, the guest range above 0x7000000000, the window on the main thread). The main difference is the graphics driver: that port uses **MoltenVK** (with its own geometry-shader emulation for fur), this one uses **Mesa KosmicKrisp**, which supports geometry shaders natively. Thanks to them for their work and their documentation.
 
 ## On the Mac
 
@@ -91,7 +91,7 @@ These numbers come from personal testing on a single Mac, not an official benchm
 ## Installation
 
 ### Requirements
-- Apple Silicon Mac with **macOS 26 (Tahoe) or 27** (tested on an M3 Max only). The graphics driver, Mesa KosmicKrisp, is built on Metal 4, which macOS 26 introduced, so **macOS 15 and older cannot run this port**. On an older macOS, see the MoltenVK-based port in [Other macOS work](#other-macos-work).
+- Apple Silicon Mac with **macOS 26 (Tahoe) or 27** (tested on an M3 Max only). The graphics driver, Mesa KosmicKrisp, is built on Metal 4, which macOS 26 introduced, so **macOS 15 and older cannot run this port**.
 - **Rosetta 2** (see [About Rosetta 2](#about-rosetta-2)). If it is missing, the app tells you how to install it:
   `softwareupdate --install-rosetta --agree-to-license`
 - **Your own game.** A dump of CTR Nitro-Fueled from a console/copy you legally own. The supported version is **CUSA13795 (USA) with the 1.21 update merged**; the European CUSA14876 is experimental. Other versions can be started with **Settings → Allow other game versions (experimental)**, but the patches and online play are made for 1.21 and may not work there. **This repository and its releases do not include, share or link to any game files, firmware or keys.** Requests for game files cannot be answered.
