@@ -1,0 +1,42 @@
+# Announces every published release in the CTR-Online on Mac Telegram group.
+# Secrets (repository settings > Secrets and variables > Actions):
+#   TELEGRAM_BOT_TOKEN  the bot's token from @BotFather (the bot is an admin of the group)
+#   TELEGRAM_CHAT_ID    the group's chat id (a negative number, e.g. -100...)
+# Run it by hand (Actions > Telegram release announcement > Run workflow) to send a test message.
+name: Telegram release announcement
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  announce:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Send the announcement
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG: ${{ github.event.release.tag_name }}
+          NAME: ${{ github.event.release.name }}
+          URL: ${{ github.event.release.html_url }}
+          BODY: ${{ github.event.release.body }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set"; exit 1
+          fi
+          if [ -z "$TAG" ]; then
+            text="✅ CTR-Online on Mac: Telegram announcements are set up."
+          else
+            # The release notes up to the separator above the Indonesian summary, at most ~1500 chars.
+            notes=$(printf '%s' "$BODY" | sed '/^---$/,$d' | head -c 1500)
+            text=$(printf '🏁 %s\n\n%s\n\n⬇️ Download: https://github.com/%s/releases/latest/download/CTR-Online-on-Mac.dmg\n📄 Release: %s\n\nApp yang sudah terpasang bisa update langsung dari launcher (tombol Update).' \
+                   "${NAME:-$TAG}" "$notes" "$REPO" "$URL")
+          fi
+          jq -n --arg chat "$CHAT_ID" --arg text "$text" \
+             '{chat_id: $chat, text: $text, disable_web_page_preview: true}' > message.json
+          curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+               -H 'Content-Type: application/json' --data @message.json > reply.json
+          jq -r '.ok' reply.json
