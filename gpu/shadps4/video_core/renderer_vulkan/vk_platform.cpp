@@ -292,7 +292,9 @@ vk::UniqueInstance CreateInstance(Frontend::WindowSystemType window_type, bool e
     }();
     // SacredFire: only a bundled ICD (an .app with MoltenVK_icd.json next to the executable)
     // overrides the loader; otherwise it finds Homebrew's MoltenVK in /usr/local/share/vulkan.
-    if (!std::getenv("VK_DRIVER_FILES") && std::filesystem::exists(icd_path / "MoltenVK_icd.json")) {
+    // Momochan32: the launcher names the driver (KosmicKrisp on macOS 26+) in VK_ICD_FILENAMES.
+    if (!std::getenv("VK_DRIVER_FILES") && !std::getenv("VK_ICD_FILENAMES") &&
+        std::filesystem::exists(icd_path / "MoltenVK_icd.json")) {
         setenv("VK_DRIVER_FILES", (icd_path / "MoltenVK_icd.json").c_str(), true);
     }
 #endif

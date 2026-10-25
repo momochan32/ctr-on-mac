@@ -10,7 +10,7 @@ port="$res/port"
 export BB_DATA_DIR="$HOME/Library/Application Support/CTR-Online"
 mkdir -p "$BB_DATA_DIR"
 
-python="$contents/Frameworks/Python.framework/Versions/3.15/Resources/Python.app/Contents/MacOS/CTR-Online on Mac"
+python=$(echo "$contents"/Frameworks/Python.framework/Versions/[0-9]*/Resources/Python.app/Contents/MacOS/"CTR-Online on Mac")
 if [[ -x $python ]]; then
     export PATH="$res/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     export BB_BASH="$res/bin/bash"

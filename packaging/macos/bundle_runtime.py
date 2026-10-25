@@ -19,8 +19,13 @@ from pathlib import Path
 # The Homebrew prefix to bundle from: BB_RUNTIME_PREFIX names one with bottles for the oldest macOS
 # the app supports (fetch_runtime.py); the build Mac's own Homebrew only suits its own macOS.
 BREW = Path(os.environ.get("BB_RUNTIME_PREFIX") or "/opt/homebrew").resolve()
-PY_VER = "3.15"
-PY_FRAMEWORK = BREW / f"opt/python@{PY_VER}/Frameworks/Python.framework"
+# The Python to bundle: Homebrew's python@3.15 by default; a MacPorts prefix (fetch_macports.py)
+# names its own (BB_PY_VER=3.13, BB_PY_FRAMEWORK=<prefix>/Library/Frameworks/Python.framework),
+# whose PyGObject and pycairo sit in the framework's own site-packages.
+PY_VER = os.environ.get("BB_PY_VER") or "3.15"
+PY_FRAMEWORK = Path(os.environ.get("BB_PY_FRAMEWORK") or BREW / f"opt/python@{PY_VER}/Frameworks/Python.framework")
+PY_SITE = (PY_FRAMEWORK / "Versions" / PY_VER / "lib" / f"python{PY_VER}" / "site-packages"
+           if os.environ.get("BB_PY_FRAMEWORK") else BREW / "lib" / f"python{PY_VER}" / "site-packages")
 APP_EXE = "CTR-Online on Mac"  # the bundled Python.app's executable (launch.sh starts it)
 GI_TYPELIBS = ["Adw-1", "cairo-1.0", "freetype2-2.0", "Gdk-4.0", "GdkMacos-4.0", "GdkPixbuf-2.0",
                "Gio-2.0", "GioUnix-2.0", "GIRepository-3.0", "GLib-2.0", "GLibUnix-2.0", "GModule-2.0",
@@ -113,9 +118,10 @@ class Bundler:
             rel = os.path.relpath(self.lib, macho.parent)
             rpath = "@loader_path" if rel == "." else f"@loader_path/{rel}"
             load_commands = run("otool", "-l", str(macho))
-            # Homebrew's own rpaths come first in the search: @rpath/libssl would load its copy.
+            # Absolute rpaths (Homebrew's, a build folder's) come first in the search: @rpath/libssl
+            # would load the build Mac's copy, which no other Mac has.
             for old in re.findall(r"cmd LC_RPATH\n\s+cmdsize \d+\n\s+path (\S+)", load_commands):
-                if old.startswith(str(BREW)) or "/Cellar/" in old:
+                if old.startswith("/"):
                     args += ["-delete_rpath", old]
             if rpath not in load_commands:
                 args += ["-add_rpath", rpath]
@@ -150,9 +156,8 @@ def copy_python(b):
         site.unlink()
     shutil.rmtree(site, ignore_errors=True)
     site.mkdir()
-    brew_site = BREW / "lib" / f"python{PY_VER}" / "site-packages"
     for pkg in ("gi", "cairo"):
-        shutil.copytree(brew_site / pkg, site / pkg, ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(PY_SITE / pkg, site / pkg, ignore=shutil.ignore_patterns("__pycache__"))
     (dest / "Versions" / "Current").symlink_to(PY_VER)
     fw_lib = vdir / "Python"
     subprocess.run(["install_name_tool", "-id", f"@rpath/Python.framework/Versions/{PY_VER}/Python",
@@ -205,6 +210,9 @@ def copy_gtk_data(b):
     typelibs.mkdir(parents=True, exist_ok=True)
     for name in GI_TYPELIBS:
         src = (BREW / "lib" / "girepository-1.0" / f"{name}.typelib").resolve()
+        if not src.exists():
+            print(f"no {name}.typelib in {BREW}: skipped")
+            continue
         shutil.copy2(src, typelibs / src.name)
         # The libraries a typelib names are opened by name (dlopen): they must be bundled.
         for lib in set(re.findall(rb"[A-Za-z0-9_.+-]+\.dylib", src.read_bytes())):

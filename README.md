@@ -91,7 +91,10 @@ These numbers come from personal testing on a single Mac, not an official benchm
 ## Installation
 
 ### Requirements
-- Apple Silicon Mac with **macOS 26 (Tahoe) or 27** (tested on an M3 Max only). The graphics driver, Mesa KosmicKrisp, is built on Metal 4, which macOS 26 introduced, so **macOS 15 and older cannot run this port**.
+- Any Apple Silicon Mac (M1 and newer) with **macOS 13.3 or newer** (tested on an M3 Max only).
+  - **Recommended: macOS 26 (Tahoe) or newer.** The game then uses Mesa KosmicKrisp (built on Metal 4): full features and the best performance.
+  - **macOS 13.3 to 15: compatibility mode** with MoltenVK. The fur is emulated, and hidden during the Halloween event (drawing it there crashes the GPU driver); performance may be lower. The app picks the right driver by itself, and Settings → Display shows which one is used.
+  - Everything is inside the app (Python, GTK, graphics drivers): nothing else to install except Rosetta 2.
 - **Rosetta 2** (see [About Rosetta 2](#about-rosetta-2)). If it is missing, the app tells you how to install it:
   `softwareupdate --install-rosetta --agree-to-license`
 - **Your own game.** A dump of CTR Nitro-Fueled from a console/copy you legally own. The supported version is **CUSA13795 (USA) with the 1.21 update merged**; the European CUSA14876 is experimental. Other versions can be started with **Settings → Allow other game versions (experimental)**, but the patches and online play are made for 1.21 and may not work there. **This repository and its releases do not include, share or link to any game files, firmware or keys.** Requests for game files cannot be answered.
