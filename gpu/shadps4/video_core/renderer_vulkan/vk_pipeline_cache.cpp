@@ -36,6 +36,17 @@
 #include "bbport_toggles.h"
 #include "bbport_settings.h"
 
+#include <atomic>
+#include <cstdio>
+static bool BbGsTrace(const char* what) {
+    static const bool on = std::getenv("BB_GS_TRACE") != nullptr;
+    static std::atomic<int> n{0};
+    if (on && n.fetch_add(1) < 200) {
+        std::fprintf(stderr, "[gs-trace] %s\n", what);
+    }
+    return false;
+}
+
 namespace Vulkan {
 
 using Shader::HwStage;
@@ -1000,11 +1011,12 @@ bool PipelineCache::RefreshGraphicsStages(PipelineSelection& sel) {
                 regs.primitive_type != AmdGpu::PrimitiveType::TriangleList ||
                 regs.vgt_gs_instance_cnt.IsEnabled()) {
                 LOG_WARNING(Render_Vulkan, "Geometry shader stage unsupported, skipping");
-                return false;
+                return BbGsTrace("select: unsupported registers");
             }
             if (GeometryEmitsNothing(regs)) {
-                return false;
+                return BbGsTrace("select: emits nothing");
             }
+            BbGsTrace("select: emulated draw");
             const u32 requested = sel.gs_emulation;
             sel.gs_emulation = requested ? requested : 2u;
             key.gs_emulation = sel.gs_emulation;
@@ -1023,7 +1035,7 @@ bool PipelineCache::RefreshGraphicsStages(PipelineSelection& sel) {
             }
             sel.gs_emulation = requested;
             if (!bound) {
-                return false;
+                return BbGsTrace("select: stage not bound");
             }
             break;
         }

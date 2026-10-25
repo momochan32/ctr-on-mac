@@ -8,6 +8,6 @@
 <key>CFBundleIconFile</key><string>CTR-Online</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>1.1.4</string>
-<key>LSMinimumSystemVersion</key><string>26.0</string>
+<key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

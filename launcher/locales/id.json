@@ -431,5 +431,8 @@
   "Guide (README)": "Panduan (README)",
   "Telegram group": "Grup Telegram",
   "Report a bug": "Lapor bug",
-  "Help": "Bantuan"
+  "Help": "Bantuan",
+  "Graphics driver": "Driver grafis",
+  "MoltenVK (compatibility mode for macOS 15). The fur is emulated, and hidden during the Halloween event. macOS 26 or later is recommended: it uses KosmicKrisp, with more features and better performance.": "MoltenVK (mode kompatibilitas untuk macOS 15). Bulu karakter diemulasikan, dan disembunyikan selama event Halloween. Disarankan macOS 26 atau lebih baru: memakai KosmicKrisp, dengan fitur lebih lengkap dan performa lebih baik.",
+  "KosmicKrisp (recommended, macOS 26 or later)": "KosmicKrisp (disarankan, macOS 26 atau lebih baru)"
 }

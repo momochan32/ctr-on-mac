@@ -167,6 +167,7 @@ Thank you to everyone whose work this port is built on:
 - **Ryu7w7** and the OCTR contributors: RyuNET online play, the server, launchers, mods and many fixes.
 - **OCTR contributors** named in its release history, among them tcosi (21:9/32:9 layouts, mods), Brony666 (Linux launcher, Achievements, Mods), SoyAlejandroCalixto, Vo1dTear, n0buholic, MetaHeart and Naif Alqurashi. The full list is in [README-OCTR.md](README-OCTR.md) and this repository's commit history.
 - **bbport**: the original runtime design.
+- **Ilyo D'Urso (idurso-hidonix)**: the MoltenVK support and geometry-shader (fur) emulation used on macOS 15, from his macOS port of OCTR (GPL-2.0).
 - **The shadPS4 team**: the graphics core and shader recompiler.
 - **The Mesa / KosmicKrisp developers**: Vulkan on Metal.
 - **illusion** (PS-Game-Patch): 60 FPS and motion blur patches. **TroyWarez**: Pro 1080p patch. **Camiloop**: Unlock Everything.

@@ -45,6 +45,17 @@
 #include <strings.h>
 #include <sys/stat.h>
 
+#include <atomic>
+#include <cstdio>
+static bool BbGsTrace(const char* what) {
+    static const bool on = std::getenv("BB_GS_TRACE") != nullptr;
+    static std::atomic<int> n{0};
+    if (on && n.fetch_add(1) < 200) {
+        std::fprintf(stderr, "[gs-trace] %s\n", what);
+    }
+    return false;
+}
+
 namespace Vulkan {
 
 static Shader::PushData MakeUserData(const AmdGpu::Regs& regs) {
@@ -1474,8 +1485,10 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset, const PreparedDraw* pre
         }
         gs_export_pipeline = pipeline_cache.GetGsExportPipeline();
         if (!gs_export_pipeline) {
+            BbGsTrace("draw: no export pipeline");
             return;
         }
+        BbGsTrace("draw: recorded");
         DrawRecord(pipeline, nullptr, is_indexed, index_offset);
         gs_export_pipeline = nullptr;
         return;
@@ -1495,7 +1508,7 @@ bool Rasterizer::RecordGsExportPass(bool is_indexed, u32 index_offset, u32& para
     const u32 slots = regs.vgt_gs_max_vert_out / 3 * 3;
     const u32 stride = regs.vgt_esgs_ring_itemsize / 4;
     if (count < 3 || slots == 0 || stride == 0 || regs.num_instances.NumInstances() != 1) {
-        return false;
+        return BbGsTrace("export: bad counts");
     }
     // During the Halloween event (its ghosts; BB_THEME=halloween: the server's season theme or
     // bbport.ini theme=) binding the fur draws' resources loses the device on MoltenVK

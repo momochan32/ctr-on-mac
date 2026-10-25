@@ -17,10 +17,16 @@ cp packaging/macos/CTR-Online.icns "$app/Contents/Resources/"
 rsync -a --exclude __pycache__ run.sh run.py scripts tools patches shaders launcher "$port/"
 rm -f "$port/patches/OCTR-Mod-Library.xml"
 # The game executable as CTR-Online: the name macOS shows in the menu bar and the Dock.
-cp out/gpu-mac/sacredfire "$port/bin/CTR-Online"
+# BB_GPU_DIR: the game's build (deployment target 15.0); BB_VULKAN_LOADER: a loader built for
+# macOS 15; the drivers: KosmicKrisp (macOS 26+, from the shadPS4 build) and MoltenVK (macOS 15).
+gpu=${BB_GPU_DIR:-out/gpu-mvk}
+kosmickrisp=${BB_KOSMICKRISP_DIR:-out/gpu-mac}
+moltenvk=${BB_MOLTENVK_DIR:-out/moltenvk-1.4.2/MoltenVK/MoltenVK/dynamic/dylib/macOS}
+cp "$gpu/sacredfire" "$port/bin/CTR-Online"
 cp packaging/macos/icon.png "$port/bin/icon.png"
-cp out/gpu-mac/bb-gpu-capabilities out/gpu-mac/libvulkan.1.dylib \
-   out/gpu-mac/libvulkan_kosmickrisp.dylib out/gpu-mac/kosmickrisp_mesa_icd.json "$port/bin/"
+cp "$gpu/bb-gpu-capabilities" "${BB_VULKAN_LOADER:-out/vulkan-loader-build/loader/libvulkan.1.dylib}" \
+   "$kosmickrisp/libvulkan_kosmickrisp.dylib" "$kosmickrisp/kosmickrisp_mesa_icd.json" \
+   "$moltenvk/libMoltenVK.dylib" "$moltenvk/MoltenVK_icd.json" "$port/bin/"
 [[ -f out/aerolib.inl ]] && mkdir -p "$port/out" && cp out/aerolib.inl "$port/out/"
 # The build's rpaths name folders on the build Mac: the bundled executables look beside themselves only.
 for exe in "$port/bin/CTR-Online" "$port/bin/bb-gpu-capabilities"; do
@@ -32,11 +38,11 @@ done
 # The launcher's runtime (Python, GTK 4, libadwaita, bash): no Homebrew needed on the player's Mac.
 bundle_args=()
 [[ -n ${BB_SIGN_IDENTITY:-} ]] && bundle_args=(--identity "$BB_SIGN_IDENTITY")
-# From bottles for the oldest macOS the app supports (KosmicKrisp needs macOS 26), not from this
+# From bottles for the oldest macOS the app supports (macOS 15, arm64_sequoia), not from this
 # Mac's Homebrew, whose bottles only suit this Mac's own macOS.
 min_macos=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" packaging/macos/Info.plist)
-runtime=out/runtime-tahoe
-[[ -d $runtime/opt/python@3.15 ]] || /opt/homebrew/bin/python3 packaging/macos/fetch_runtime.py "$runtime" --tag arm64_tahoe
+runtime=out/runtime-sequoia
+[[ -d $runtime/opt/python@3.15 ]] || /opt/homebrew/bin/python3 packaging/macos/fetch_runtime.py "$runtime" --tag arm64_sequoia
 BB_RUNTIME_PREFIX=$runtime /opt/homebrew/bin/python3 packaging/macos/bundle_runtime.py "$app" "${bundle_args[@]}"
 # The app's version (Info.plist): what the launcher compares with the latest GitHub release.
 version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" packaging/macos/Info.plist)
@@ -48,7 +54,7 @@ mkdir -p "$stage/docs" && cp -R docs/macos "$stage/docs/"
 sign_args=(--force --sign "${BB_SIGN_IDENTITY:--}")
 [[ -n ${BB_SIGN_IDENTITY:-} ]] && sign_args+=(--options runtime --timestamp --entitlements packaging/macos/entitlements.plist)
 for exe in "$port/bin/CTR-Online" "$port/bin/bb-gpu-capabilities" "$port/bin/libvulkan.1.dylib" \
-           "$port/bin/libvulkan_kosmickrisp.dylib" "$app/Contents/MacOS/CTR-Online"; do
+           "$port/bin/libvulkan_kosmickrisp.dylib" "$port/bin/libMoltenVK.dylib" "$app/Contents/MacOS/CTR-Online"; do
     codesign "${sign_args[@]}" "$exe"
 done
 # Nested bundles are signed from the inside out: Python.app, then Python.framework, then the app.
@@ -59,6 +65,8 @@ codesign "${sign_args[@]}" "$app"
 codesign --verify --deep --strict "$app" && echo "Signed: ${BB_SIGN_IDENTITY:-ad hoc}"
 # Every executable must start on the oldest macOS the app claims: one built for a newer macOS stops the build.
 too_new=$(find "$app" -type f -print0 | while IFS= read -r -d '' f; do
+    # KosmicKrisp is only loaded on macOS 26 and later (launcher: mac_vulkan_driver).
+    [[ $f == */libvulkan_kosmickrisp.dylib ]] && continue
     minos=$(otool -l "$f" 2>/dev/null | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
     [[ -n $minos ]] && [[ $(printf '%s\n%s\n' "$min_macos" "$minos" | sort -V | tail -1) != "$min_macos" ]] &&
         echo "  needs macOS $minos: ${f#$app/}"

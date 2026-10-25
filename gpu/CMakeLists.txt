@@ -1,9 +1,10 @@
 # bbport GPU library: shadPS4 video core + shader recompiler + Gnm/VideoOut
 # drivers, adapted to the native_probe runtime through shims in shim/.
 cmake_minimum_required(VERSION 3.24)
-# Momochan32 (macOS): KosmicKrisp needs Metal 4, so macOS 26 is the oldest system the port runs
-# on; without a target the build would require the build Mac's own version.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "26.0" CACHE STRING "Oldest macOS the build runs on")
+# Momochan32 (macOS): the app runs on macOS 15 and later (the oldest the launcher's Homebrew
+# bottles cover); the Vulkan driver is KosmicKrisp on macOS 26 (it needs Metal 4) and MoltenVK
+# before it. Without a target the build would require the build Mac's own version.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Oldest macOS the build runs on")
 project(bbgpu LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

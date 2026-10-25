@@ -168,6 +168,7 @@ Terima kasih kepada semua orang yang karyanya menjadi dasar port ini:
 - **Ryu7w7** dan kontributor OCTR: mode online RyuNET, server, launcher, mods, dan banyak perbaikan.
 - **Kontributor OCTR** yang disebut di riwayat rilisnya, antara lain tcosi (layout 21:9/32:9, mods), Brony666 (launcher Linux, Achievements, Mods), SoyAlejandroCalixto, Vo1dTear, n0buholic, MetaHeart, dan Naif Alqurashi. Daftar lengkapnya ada di [README-OCTR.md](README-OCTR.md) dan riwayat commit repo ini.
 - **bbport**: desain runtime asal.
+- **Ilyo D'Urso (idurso-hidonix)**: dukungan MoltenVK dan emulasi geometry shader (bulu karakter) yang dipakai di macOS 15, dari port macOS OCTR miliknya (GPL-2.0).
 - **Tim shadPS4**: inti grafis dan shader recompiler.
 - **Pengembang Mesa / KosmicKrisp**: Vulkan di atas Metal.
 - **illusion** (PS-Game-Patch): patch 60 FPS dan motion blur. **TroyWarez**: patch Pro 1080p. **Camiloop**: Unlock Everything.
