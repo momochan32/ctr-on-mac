@@ -238,6 +238,7 @@
   "The game hit the known \"clobbered command buffer\" bug (issue #2). Please export this log and attach it to the issue so the cause can be fixed.": "Game terkena bug \"clobbered command buffer\" yang sudah diketahui (issue #2). Tolong ekspor log ini dan lampirkan ke issue tersebut agar penyebabnya bisa diperbaiki.",
   "The languages of your edition of the game": "Bahasa yang tersedia di edisi game-mu",
   "The screen the game window and fullscreen go to": "Layar tujuan jendela game dan fullscreen",
+  "Detect monitors again": "Deteksi ulang monitor",
   "The server could not be asked (it checks again when you play).": "Server tidak bisa ditanya (akan dicek lagi saat kamu bermain).",
   "The server could not confirm the account with Discord. Try again.": "Server tidak bisa mengonfirmasi akun dengan Discord. Coba lagi.",
   "The server did not accept the request.": "Server tidak menerima permintaan.",

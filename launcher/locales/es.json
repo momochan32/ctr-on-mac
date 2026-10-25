@@ -238,6 +238,7 @@
   "The game hit the known \"clobbered command buffer\" bug (issue #2). Please export this log and attach it to the issue so the cause can be fixed.": "El juego tuvo el error conocido del \"buffer de comandos sobrescrito\" (issue #2). Exporta este registro y adjúntalo al issue para que se pueda arreglar la causa.",
   "The languages of your edition of the game": "Los idiomas de tu versión del juego",
   "The screen the game window and fullscreen go to": "La pantalla donde va la ventana del juego y la pantalla completa",
+  "Detect monitors again": "Volver a detectar monitores",
   "The server could not be asked (it checks again when you play).": "No se pudo consultar al servidor (lo vuelve a comprobar al jugar).",
   "The server could not confirm the account with Discord. Try again.": "El servidor no pudo confirmar la cuenta con Discord. Prueba otra vez.",
   "The server did not accept the request.": "El servidor no aceptó la solicitud.",

@@ -236,7 +236,8 @@ def main():
     b.rewrite_all()
     b.sign_all()
     # The image loaders' cache, with the bundle's loader folder as a placeholder (launch.sh fills it).
-    loaders = b.contents / "Frameworks" / "gdk-pixbuf" / "loaders"
+    # Absolute: the tool prints absolute paths, and all of the folder must become the placeholder.
+    loaders = (b.contents / "Frameworks" / "gdk-pixbuf" / "loaders").resolve()
     cache = run(str(BREW / "bin" / "gdk-pixbuf-query-loaders"), *sorted(str(p) for p in loaders.glob("*.so")))
     (b.contents / "Resources" / "gdk-pixbuf-loaders.cache.in").write_text(cache.replace(str(loaders), "@APP_LOADERS@"))
     print(f"Bundled {len(b.copied)} libraries; {len(set(b.machos))} Mach-O files signed "

@@ -233,6 +233,7 @@
   "The game hit the known \"clobbered command buffer\" bug (issue #2). Please export this log and attach it to the issue so the cause can be fixed.": "游戏遇到了已知的“命令缓冲区被覆盖”问题（issue #2）。请导出此日志并附加到该 issue，以便修复原因。",
   "The languages of your edition of the game": "你的游戏版本的语言",
   "The screen the game window and fullscreen go to": "游戏窗口和全屏所在的屏幕",
+  "Detect monitors again": "重新检测显示器",
   "The server could not be asked (it checks again when you play).": "无法询问服务器（游戏时会再次检查）。",
   "The server could not confirm the account with Discord. Try again.": "服务器无法通过 Discord 确认账号。请重试。",
   "The server did not accept the request.": "服务器未接受该请求。",

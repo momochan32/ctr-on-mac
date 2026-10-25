@@ -233,6 +233,7 @@
   "The game hit the known \"clobbered command buffer\" bug (issue #2). Please export this log and attach it to the issue so the cause can be fixed.": "Le jeu a rencontré le bug connu du « tampon de commandes écrasé » (issue #2). Exportez ce journal et joignez-le à l'issue pour qu'on puisse corriger la cause.",
   "The languages of your edition of the game": "Les langues de votre édition du jeu",
   "The screen the game window and fullscreen go to": "L'écran où vont la fenêtre du jeu et le plein écran",
+  "Detect monitors again": "Détecter à nouveau les écrans",
   "The server could not be asked (it checks again when you play).": "Le serveur n'a pas pu être interrogé (il revérifie quand vous jouez).",
   "The server could not confirm the account with Discord. Try again.": "Le serveur n'a pas pu confirmer le compte avec Discord. Réessayez.",
   "The server did not accept the request.": "Le serveur n'a pas accepté la demande.",

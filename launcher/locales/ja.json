@@ -233,6 +233,7 @@
   "The game hit the known \"clobbered command buffer\" bug (issue #2). Please export this log and attach it to the issue so the cause can be fixed.": "ゲームで既知の「コマンドバッファ上書き」不具合（issue #2）が発生しました。原因を修正できるよう、このログをエクスポートして issue に添付してください。",
   "The languages of your edition of the game": "あなたのゲームの版の言語",
   "The screen the game window and fullscreen go to": "ゲームウィンドウとフルスクリーンを表示する画面",
+  "Detect monitors again": "モニターを再検出",
   "The server could not be asked (it checks again when you play).": "サーバーに問い合わせできませんでした（プレイ時に再確認します）。",
   "The server could not confirm the account with Discord. Try again.": "サーバーが Discord でアカウントを確認できませんでした。もう一度お試しください。",
   "The server did not accept the request.": "サーバーがリクエストを受け付けませんでした。",

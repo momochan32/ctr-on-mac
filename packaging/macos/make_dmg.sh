@@ -22,6 +22,13 @@ cp packaging/macos/icon.png "$port/bin/icon.png"
 cp out/gpu-mac/bb-gpu-capabilities out/gpu-mac/libvulkan.1.dylib \
    out/gpu-mac/libvulkan_kosmickrisp.dylib out/gpu-mac/kosmickrisp_mesa_icd.json "$port/bin/"
 [[ -f out/aerolib.inl ]] && mkdir -p "$port/out" && cp out/aerolib.inl "$port/out/"
+# The build's rpaths name folders on the build Mac: the bundled executables look beside themselves only.
+for exe in "$port/bin/CTR-Online" "$port/bin/bb-gpu-capabilities"; do
+    while read -r old; do
+        install_name_tool -delete_rpath "$old" "$exe"
+    done < <(otool -l "$exe" | awk '/cmd LC_RPATH/{getline; getline; print $2}' | grep -v '^@')
+    otool -l "$exe" | grep -q 'path @executable_path ' || install_name_tool -add_rpath @executable_path "$exe"
+done
 # The launcher's runtime (Python, GTK 4, libadwaita, bash): no Homebrew needed on the player's Mac.
 bundle_args=()
 [[ -n ${BB_SIGN_IDENTITY:-} ]] && bundle_args=(--identity "$BB_SIGN_IDENTITY")
