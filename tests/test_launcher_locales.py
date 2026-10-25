@@ -9,7 +9,7 @@ LAUNCHER = ROOT / 'launcher' / 'sacredfire_launcher.py'
 LOCALES = ROOT / 'launcher' / 'locales'
 # Choice lists whose labels the launcher passes through tr() (combo_row and the bindings pages).
 LISTS = {'FPS_LIMITS', 'RENDER_RESOLUTIONS', 'WIDESCREEN_LAYOUTS', 'PRESENT_MODES', 'LANGUAGES', 'LANGUAGES_EU', 'UPSCALERS', 'INVENTORIES',
-         'KEY_INPUTS', 'PAD_INPUTS'}
+         'KEY_INPUTS', 'PAD_INPUTS', 'CREDITS', 'OUTPUT_RESOLUTIONS'}
 
 
 def translated_texts():
@@ -22,7 +22,7 @@ def translated_texts():
                 found.add(arg.value)
     for node in tree.body:
         if isinstance(node, ast.Assign) and getattr(node.targets[0], 'id', '') in LISTS:
-            index = 1 if node.targets[0].id in ('KEY_INPUTS', 'PAD_INPUTS') else 0
+            index = 1 if node.targets[0].id in ('KEY_INPUTS', 'PAD_INPUTS', 'CREDITS') else 0
             for element in node.value.elts:
                 item = element.elts[index]
                 if isinstance(item, ast.Constant):

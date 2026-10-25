@@ -12,13 +12,16 @@ import hashlib
 import json
 import os
 import re
+import sys
 import urllib.request
 from pathlib import Path
 
-REPO = "Ryu7w7/OCTR-NitroFueled-PC"
+MACOS = sys.platform == "darwin"
+# CTR-Online on Mac: the macOS port's own releases (a DMG); elsewhere OCTR's AppImage.
+REPO = "momochan32/ctr-on-mac" if MACOS else "Ryu7w7/OCTR-NitroFueled-PC"
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
-ASSET = re.compile(r"^SacredFire-.+-x86_64\.AppImage$")
+ASSET = re.compile(r"^CTR-Online-on-Mac.*\.dmg$" if MACOS else r"^SacredFire-.+-x86_64\.AppImage$")
 
 
 def parse_version(text):
@@ -30,7 +33,7 @@ def parse_version(text):
         return None
     suffix = m.group(4)
     while True:
-        for drop in ("-dirty", "-windows", "-linux"):
+        for drop in ("-dirty", "-windows", "-linux", "-macos"):
             if suffix.endswith(drop):
                 suffix = suffix[:-len(drop)]
                 break
@@ -68,7 +71,7 @@ def parse_release(body):
 def latest_release(timeout=10):
     """The latest release's AppImage (parse_release), or raises OSError/ValueError."""
     request = urllib.request.Request(LATEST, headers={"Accept": "application/vnd.github+json",
-                                                      "User-Agent": "SacredFire-launcher"})
+                                                      "User-Agent": "CTR-Online-on-Mac-launcher" if MACOS else "SacredFire-launcher"})
     with urllib.request.urlopen(request, timeout=timeout) as reply:
         return parse_release(reply.read(1 << 20))
 
@@ -119,3 +122,55 @@ def install(release, appimage, progress=lambda done, total: None, opener=urllib.
         except OSError:
             pass  # a read-only folder or file: the old one stays next to the new one
     return target
+
+
+def running_app():
+    """macOS: the .app this launcher runs from (Contents/Resources/port/launcher), None in a checkout."""
+    app = Path(__file__).resolve().parents[4]
+    return app if app.suffix == ".app" and (app / "Contents" / "Info.plist").is_file() else None
+
+
+def install_app(release, app, progress=lambda done, total: None, opener=urllib.request.urlopen):
+    """macOS: downloads the release's DMG, checks it, and puts its app in place of app. The old app
+    stays until the new one is complete; any failure leaves it as it was. Returns the app path."""
+    import hashlib
+    import shutil
+    import subprocess
+    import tempfile
+    work = Path(tempfile.mkdtemp(prefix="ctr-online-update-"))
+    mount = work / "mount"
+    try:
+        dmg = work / release["name"]
+        digest = hashlib.sha256()
+        with opener(urllib.request.Request(release["url"], headers={"User-Agent": "CTR-Online-on-Mac-launcher"}),
+                    timeout=60) as reply, open(dmg, "wb") as out:
+            done = 0
+            while chunk := reply.read(1 << 20):
+                out.write(chunk)
+                digest.update(chunk)
+                done += len(chunk)
+                progress(done, release["size"])
+        if release["sha256"] and digest.hexdigest() != release["sha256"]:
+            raise OSError("the download does not match the release's checksum")
+        mount.mkdir()
+        subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", str(mount), str(dmg)],
+                       check=True, capture_output=True)
+        try:
+            source = next(mount.glob("*.app"), None)
+            if not source:
+                raise OSError("the DMG has no app")
+            staged = app.with_name(app.name + ".new")
+            shutil.rmtree(staged, ignore_errors=True)
+            subprocess.run(["ditto", str(source), str(staged)], check=True, capture_output=True)
+        finally:
+            subprocess.run(["hdiutil", "detach", str(mount)], capture_output=True)
+        old = app.with_name(app.name + ".old")
+        shutil.rmtree(old, ignore_errors=True)
+        app.rename(old)
+        staged.rename(app)
+        shutil.rmtree(old, ignore_errors=True)
+        return app
+    except subprocess.CalledProcessError as error:
+        raise OSError((error.stderr or b"").decode(errors="replace").strip() or str(error)) from error
+    finally:
+        shutil.rmtree(work, ignore_errors=True)

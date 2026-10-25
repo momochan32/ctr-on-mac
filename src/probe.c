@@ -921,7 +921,9 @@ void runtime_restart(void) {
         posix_spawn_file_actions_init(&files);
         for (int fd = 0; fd < 3; ++fd) posix_spawn_file_actions_addinherit_np(&files, fd);
         char *args[] = {"bash", "run.sh", NULL};
-        const int error = posix_spawn(NULL, "/opt/homebrew/bin/bash", &files, &attr, args, environ);
+        const char *bash = getenv("BB_BASH");
+        if (!bash || !*bash) bash = "/opt/homebrew/bin/bash";
+        const int error = posix_spawn(NULL, bash, &files, &attr, args, environ);
         fprintf(stderr, "runtime_restart: posix_spawn failed (%s)\n", strerror(error));
         _exit(1);
     }

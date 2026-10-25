@@ -1,0 +1,36 @@
+# CTR-Online on Mac: the source checks of the upstream workflow (tests, compile, patch XML).
+# The Linux/Windows build and release jobs belong to OCTR; macOS DMGs are released by hand
+# (packaging/macos/make_dmg.sh).
+name: Source checks
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Source checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # scripts/isa_rewrite.py scans the linked image with iced-x86 (docs/sacredfire/15-isa-rewrite.md).
+      - name: Python packages
+        run: pip install iced-x86
+      # Tests needing the executable run separately with `bash build.sh --test`.
+      - name: Python tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Shell syntax
+        run: bash -n run.sh build.sh launcher/bb-launcher.sh launcher/install-desktop.sh packaging/appimage.sh
+      - name: Launcher compiles
+        run: python3 -m py_compile launcher/*.py tools/gen_import_names.py tools/shader_recipe.py scripts/*.py
+      - name: Patch file parses
+        run: python3 -c "import xml.etree.ElementTree as ET; ET.parse('patches/CrashTeamRacing.xml'); print('ok')"

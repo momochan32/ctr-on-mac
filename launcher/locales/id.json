@@ -153,7 +153,6 @@
   "No saves yet.": "Belum ada save.",
   "Off": "Mati",
   "Online (RyuNET)": "Online (RyuNET)",
-  "Online play needs your own nickname (3-16 letters, digits, _ or -; not RyuPC or Player)": "Main online butuh nickname sendiri (3-16 huruf, angka, _ atau -; bukan RyuPC atau Player)",
   "Online races, private rooms and the Pit Stop. Your nickname is yours on the server: this installation keeps it (ryunet_online.key in the data folder); link it to Discord to recover it after a reinstall or on another PC.": "Balapan online, room privat dan Pit Stop. Nickname-mu jadi milikmu di server: instalasi ini menyimpannya (ryunet_online.key di folder data); tautkan ke Discord untuk memulihkannya setelah install ulang atau di PC lain.",
   "Only the port's copy is deleted.": "Hanya salinan milik port yang dihapus.",
   "Only with PS4 Pro mode, and only when the internal resolution is the game default (Settings > Internal resolution decides otherwise).": "Hanya dengan mode PS4 Pro, dan hanya jika resolusi internal adalah bawaan game (selain itu Pengaturan > Resolusi internal yang menentukan).",
@@ -301,7 +300,6 @@
   "Duration: permanent": "Durasi: permanen",
   "If you think it is a mistake, appeal on our Discord.": "Jika menurutmu ini salah, ajukan banding di Discord kami.",
   "Open Discord": "Buka Discord",
-  "Bugs, questions or a ban appeal: our Discord": "Bug, pertanyaan atau banding ban: Discord kami",
   "Online rules": "Aturan online",
   "No cheating: hacks, trainers, speed or item modifications, or fake leaderboard times. They ruin the game for everyone.": "Dilarang curang: hack, trainer, modifikasi kecepatan atau item, atau waktu leaderboard palsu. Itu merusak game untuk semua orang.",
   "Respect others: no offensive nicknames, insults or harassment.": "Hormati orang lain: tanpa nickname ofensif, hinaan atau pelecehan.",
@@ -400,10 +398,6 @@
   "DLC": "DLC",
   "Steam": "Steam",
   "Credits": "Kredit",
-  "Momochan32 is a personal macOS fork. All the work below belongs to its authors and the community: thank you.": "Momochan32 adalah fork pribadi untuk macOS. Semua karya di bawah ini milik para pembuatnya dan komunitas: terima kasih.",
-  "macOS build of this fork": "Build macOS dari fork ini",
-  "The native PC port and RyuNET online play this fork is based on": "Port PC native dan online RyuNET yang menjadi dasar fork ini",
-  "PC port research: MSAA, fur and other rendering fixes": "Riset port PC: perbaikan MSAA, bulu karakter, dan rendering lainnya",
   "The native PS4 runtime design the port grew from": "Desain runtime PS4 native yang menjadi cikal bakal port ini",
   "The PS4 graphics core and shader recompiler": "Inti grafis PS4 dan shader recompiler",
   "The Vulkan driver on Apple Metal that makes the Mac version possible": "Driver Vulkan di atas Apple Metal yang membuat versi Mac ini bisa jalan",
@@ -426,5 +420,7 @@
   "Choose your nickname": "Pilih nickname kamu",
   "Your nickname is your name in the game and online. 3-16 letters, digits, _ or -. The first installation to use a nickname online keeps it.": "Nickname adalah namamu di dalam game dan saat online. 3–16 huruf, angka, _ atau -. Instalasi pertama yang memakai sebuah nickname secara online akan memilikinya.",
   "Nickname": "Nickname",
-  "Save and play": "Simpan dan main"
+  "Save and play": "Simpan dan main",
+  "Allow other game versions (experimental)": "Izinkan versi game lain (eksperimental)",
+  "Starts dumps other than the 1.21 update too. The patches (60 FPS, Unlock Everything) and online play are made for 1.21: on other versions they may not apply, and the game may crash or draw wrongly.": "Dump selain update 1.21 juga bisa dijalankan. Patch (60 FPS, Unlock Everything) dan mode online dibuat untuk 1.21: di versi lain patch bisa tidak terpasang, dan game bisa crash atau tampil salah."
 }
