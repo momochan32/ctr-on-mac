@@ -1,8 +1,14 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
-  - name: Before filing
-    url: https://github.com/T3CHNOLOG1C/SacredFire/blob/main/README.md
-    about: The README lists requirements, known limitations and the variables that produce useful logs.
+  - name: Guide and known limitations (README)
+    url: https://github.com/momochan32/ctr-on-mac#readme
+    about: Requirements, installation, Rosetta 2 and known limitations of the Mac version.
+  - name: Telegram group
+    url: https://t.me/ctronmac
+    about: Questions and help for the Mac version.
+  - name: Online server (OCTR / RyuNET)
+    url: https://github.com/Ryu7w7/OCTR-NitroFueled-PC
+    about: Rules, bans and appeals of the online server are handled by the OCTR project.
   - name: Game files
-    url: https://github.com/T3CHNOLOG1C/SacredFire/blob/main/CONTRIBUTING.md
-    about: No game files, saves or dumps in issues or pull requests. Questions about obtaining the game are not answered here.
+    url: https://github.com/momochan32/ctr-on-mac/blob/main/CONTRIBUTING.md
+    about: No game files, saves or dumps in issues. Questions about obtaining the game are not answered.

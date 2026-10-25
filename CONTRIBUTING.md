@@ -1,4 +1,6 @@
-# Contributing to SacredFire
+# Contributing to CTR-Online on Mac
+
+This repository is the **unofficial macOS port** of [OCTR](https://github.com/Ryu7w7/OCTR-NitroFueled-PC). Mac-specific changes and reports belong here; everything else is the upstream projects' work, and fixes that are not Mac-specific are best sent to them. The rules below are the upstream project's and apply here as well.
 
 ## Game files
 
