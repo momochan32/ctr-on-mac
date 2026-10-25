@@ -121,6 +121,10 @@ FPS_LIMITS = [("No limit", "0"), ("30", "30"), ("60", "60"), ("72 (half of 144 H
               ("90", "90"), ("120", "120"), ("144", "144"), ("240", "240")]
 # bbport.ini render_res: the size the game draws its 3D scene at (scripts/patches.py render_plan;
 # run.sh turns the PS4 Pro path on above 1080p). "" keeps the older PS4 Pro switches below.
+# bbport.ini output_res: the size of the picture sent to the screen (the in-game menu offers the same).
+# On a 4K monitor 3840 x 2160 keeps the image sharp; the scene's own size is the internal resolution.
+OUTPUT_RESOLUTIONS = [("1280 x 720", "1280x720"), ("1920 x 1080 (Full HD)", "1920x1080"),
+                      ("2560 x 1440 (QHD)", "2560x1440"), ("3840 x 2160 (4K)", "3840x2160")]
 RENDER_RESOLUTIONS = [("Game default (the PS4 Pro switches decide)", ""),
                       ("480p (854 x 480, very low-end PCs)", "480"),
                       ("720p (1280 x 720, low-end PCs, Steam Deck)", "720"),
@@ -1331,6 +1335,12 @@ class LauncherWindow(Adw.ApplicationWindow):
                "PCs and the Steam Deck."))
         self.render_res_row.connect("notify::selected", lambda *_: self.update_render_res())
         screen.add(self.render_res_row)
+        self.output_res_row = combo_row(
+            tr("Output resolution"),
+            tr("The size of the picture sent to the screen: 4K for a 4K monitor. The 3D scene is drawn at the "
+               "internal resolution above (4K internal is heavy; 1080p or 1440p with a 4K output is smoother)."),
+            OUTPUT_RESOLUTIONS, self.ini.get("output_res", "1920x1080"))
+        screen.add(self.output_res_row)
         self.layout_row = combo_row(
             tr("Aspect ratio"),
             tr("21:9 and 32:9 correct the menus, backgrounds and HUD for that screen. Online or offline, with the 1.21 "
@@ -1673,6 +1683,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.ini["volume"] = str(int(self.volume_scale.get_value()))
         self.ini["fps_limit"] = combo_value(self.fps_limit_row)
         self.ini["render_res"] = combo_value(self.render_res_row) or None  # "": the Pro switches decide
+        self.ini["output_res"] = combo_value(self.output_res_row)
         layout = combo_value(self.layout_row)
         self.ini["widescreen_layout"] = layout
         if layout != "off":
@@ -1712,6 +1723,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         res = self.ini.get("render_res", "")
         self.render_res_row.set_selected(self.render_res_row.values.index(res) if res in self.render_res_row.values else 0)
         self.update_render_res()
+        out_res = self.ini.get("output_res", "1920x1080")
+        values = self.output_res_row.values
+        self.output_res_row.set_selected(values.index(out_res) if out_res in values else values.index("1920x1080"))
         layout = self.ini.get("widescreen_layout", "off")
         self.layout_row.set_selected(self.layout_row.values.index(layout) if layout in self.layout_row.values else 0)
         self.update_layout(self.ini.get("widescreen_output", ""))
