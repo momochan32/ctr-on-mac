@@ -39,6 +39,7 @@ README_ID = f"{REPO_URL}/blob/main/README.id.md"
 README_EN = f"{REPO_URL}/blob/main/README.md"
 ISSUES = f"{REPO_URL}/issues"
 OCTR_URL = "https://github.com/Ryu7w7/OCTR-NitroFueled-PC"
+GROUP_URL = "https://t.me/ctronmac"
 
 RULES = (
     "📜 <b>Aturan grup / Group rules</b>\n"
@@ -62,7 +63,8 @@ TEXTS = {
         "/update — cara update / how to update\n"
         "/bug — lapor bug / report a bug\n"
         "/rules — aturan grup / group rules\n"
-        "/credits — kredit / credits"
+        "/credits — kredit / credits\n\n"
+        f"👥 Grup / Group: {GROUP_URL}"
     ),
     "download": (
         f"⬇️ <b>Download</b>: <a href=\"{DMG_URL}\">CTR-Online-on-Mac.dmg</a>\n"

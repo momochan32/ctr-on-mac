@@ -121,6 +121,10 @@ Kode game adalah kode PS4 (x86-64) yang dijalankan langsung di CPU lewat **Roset
 
 Launcher mengecek rilis repo ini saat dibuka. Kalau ada versi baru, muncul banner **Update**: launcher mengunduh DMG, memeriksanya, lalu mengganti aplikasinya; pengaturan dan save kamu tetap di tempatnya.
 
+## Komunitas
+
+Bantuan, update, dan diskusi versi Mac: **[grup Telegram t.me/ctronmac](https://t.me/ctronmac)**. Pertanyaan soal server online (aturan, ban) diajukan ke komunitas OCTR.
+
 ## Tentang mode online
 
 Mode online memakai **server RyuNET milik proyek OCTR**, bukan server milik fork ini.
