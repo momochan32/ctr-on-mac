@@ -92,7 +92,10 @@ Angka ini dari pengujian pribadi di satu Mac, bukan benchmark resmi. Hasil di Ma
 ## Instalasi
 
 ### Yang dibutuhkan
-- Mac Apple Silicon dengan **macOS 26 (Tahoe) atau 27** (baru dites di M3 Max). Driver grafisnya, Mesa KosmicKrisp, dibangun di atas Metal 4 yang baru ada sejak macOS 26, jadi **macOS 15 ke bawah tidak bisa menjalankan port ini**.
+- Mac Apple Silicon apa saja (M1 ke atas) dengan **macOS 13.3 atau lebih baru** (baru dites di M3 Max).
+  - **Disarankan: macOS 26 (Tahoe) atau lebih baru.** Game memakai Mesa KosmicKrisp (berbasis Metal 4): fitur lengkap dan performa terbaik.
+  - **macOS 13.3 sampai 15: mode kompatibilitas** dengan MoltenVK. Bulu karakter diemulasikan, dan disembunyikan selama event Halloween (menggambarnya di sana membuat driver GPU crash); performa bisa lebih rendah. App memilih driver yang tepat secara otomatis, dan Pengaturan → Display menunjukkan driver yang dipakai.
+  - Semua sudah ada di dalam app (Python, GTK, driver grafis): tidak perlu memasang apa pun selain Rosetta 2.
 - **Rosetta 2** (lihat [Tentang Rosetta 2](#tentang-rosetta-2)). Kalau belum terpasang, aplikasi akan memberi tahu cara memasangnya:
   `softwareupdate --install-rosetta --agree-to-license`
 - **Game milikmu sendiri.** Dump CTR Nitro-Fueled dari konsol/salinan yang kamu miliki secara sah. Versi yang didukung adalah **CUSA13795 (USA) dengan update 1.21 digabung**; versi Eropa CUSA14876 masih eksperimental. Versi lain bisa dijalankan lewat **Pengaturan → Izinkan versi game lain (eksperimental)**, tetapi patch dan mode online dibuat untuk 1.21 dan bisa tidak berfungsi. **Repo dan rilis ini tidak menyertakan, membagikan, atau menautkan file game, firmware, maupun kunci apa pun.** Permintaan file game tidak dapat dilayani.
@@ -168,6 +171,7 @@ Terima kasih kepada semua orang yang karyanya menjadi dasar port ini:
 - **Ryu7w7** dan kontributor OCTR: mode online RyuNET, server, launcher, mods, dan banyak perbaikan.
 - **Kontributor OCTR** yang disebut di riwayat rilisnya, antara lain tcosi (layout 21:9/32:9, mods), Brony666 (launcher Linux, Achievements, Mods), SoyAlejandroCalixto, Vo1dTear, n0buholic, MetaHeart, dan Naif Alqurashi. Daftar lengkapnya ada di [README-OCTR.md](README-OCTR.md) dan riwayat commit repo ini.
 - **bbport**: desain runtime asal.
+- **Ilyo D'Urso (idurso-hidonix)**: dukungan MoltenVK dan emulasi geometry shader (bulu karakter) yang dipakai di macOS 15, dari port macOS OCTR miliknya (GPL-2.0).
 - **Tim shadPS4**: inti grafis dan shader recompiler.
 - **Pengembang Mesa / KosmicKrisp**: Vulkan di atas Metal.
 - **illusion** (PS-Game-Patch): patch 60 FPS dan motion blur. **TroyWarez**: patch Pro 1080p. **Camiloop**: Unlock Everything.
