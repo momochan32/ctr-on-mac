@@ -422,5 +422,13 @@
   "Nickname": "Nickname",
   "Save and play": "Simpan dan main",
   "Allow other game versions (experimental)": "Izinkan versi game lain (eksperimental)",
-  "Starts dumps other than the 1.21 update too. The patches (60 FPS, Unlock Everything) and online play are made for 1.21: on other versions they may not apply, and the game may crash or draw wrongly.": "Dump selain update 1.21 juga bisa dijalankan. Patch (60 FPS, Unlock Everything) dan mode online dibuat untuk 1.21: di versi lain patch bisa tidak terpasang, dan game bisa crash atau tampil salah."
+  "Starts dumps other than the 1.21 update too. The patches (60 FPS, Unlock Everything) and online play are made for 1.21: on other versions they may not apply, and the game may crash or draw wrongly.": "Dump selain update 1.21 juga bisa dijalankan. Patch (60 FPS, Unlock Everything) dan mode online dibuat untuk 1.21: di versi lain patch bisa tidak terpasang, dan game bisa crash atau tampil salah.",
+  "Play / Stop": "Main / Stop",
+  "Open the game folder": "Buka folder game",
+  "Open the saves folder": "Buka folder save",
+  "View": "Tampilan",
+  "Guide (README)": "Panduan (README)",
+  "Telegram group": "Grup Telegram",
+  "Report a bug": "Lapor bug",
+  "Help": "Bantuan"
 }
