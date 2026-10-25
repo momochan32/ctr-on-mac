@@ -121,8 +121,15 @@ class Bundler:
 
     def sign_all(self):
         for macho in dict.fromkeys(self.machos):
-            subprocess.run(["codesign", "--force", "--sign", self.identity, "--timestamp=none",
-                            str(macho)], check=True, capture_output=True)
+            args = ["codesign", "--force", "--sign", self.identity]
+            if self.identity != "-":
+                # Developer ID: hardened runtime with the port's exceptions and a secure timestamp
+                # (notarization needs both).
+                args += ["--options", "runtime", "--timestamp",
+                         "--entitlements", str(Path(__file__).with_name("entitlements.plist"))]
+            else:
+                args += ["--timestamp=none"]
+            subprocess.run([*args, str(macho)], check=True, capture_output=True)
 
 
 def copy_python(b):
@@ -148,6 +155,15 @@ def copy_python(b):
     subprocess.run(["install_name_tool", "-id", f"@rpath/Python.framework/Versions/{PY_VER}/Python",
                     str(fw_lib)], check=True, capture_output=True)
     interp = vdir / "Resources" / "Python.app" / "Contents" / "MacOS" / "Python"
+    # The launcher runs as this Python.app: the menu bar and the Dock show its name and icon.
+    py_app = vdir / "Resources" / "Python.app" / "Contents"
+    for key, value in (("CFBundleName", "CTR-Online on Mac"), ("CFBundleDisplayName", "CTR-Online on Mac"),
+                       ("CFBundleIconFile", "CTR-Online"), ("CFBundleIdentifier", "id.momochan32.ctr-online.launcher")):
+        subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Delete :{key}", str(py_app / "Info.plist")],
+                       capture_output=True)
+        subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Add :{key} string {value}", str(py_app / "Info.plist")],
+                       check=True, capture_output=True)
+    shutil.copy2(Path(__file__).with_name("CTR-Online.icns"), py_app / "Resources" / "CTR-Online.icns")
     for exe in (interp,):
         for ref in deps(exe):
             if ref.endswith(f"Python.framework/Versions/{PY_VER}/Python"):
@@ -222,7 +238,7 @@ def main():
     # The image loaders' cache, with the bundle's loader folder as a placeholder (launch.sh fills it).
     loaders = b.contents / "Frameworks" / "gdk-pixbuf" / "loaders"
     cache = run(str(BREW / "bin" / "gdk-pixbuf-query-loaders"), *sorted(str(p) for p in loaders.glob("*.so")))
-    (loaders.parent / "loaders.cache.in").write_text(cache.replace(str(loaders), "@APP_LOADERS@"))
+    (b.contents / "Resources" / "gdk-pixbuf-loaders.cache.in").write_text(cache.replace(str(loaders), "@APP_LOADERS@"))
     print(f"Bundled {len(b.copied)} libraries; {len(set(b.machos))} Mach-O files signed "
           f"({'ad hoc' if b.identity == '-' else b.identity})")
 

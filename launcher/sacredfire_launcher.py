@@ -3339,8 +3339,84 @@ class LauncherApp(Adw.Application):
                          flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
 
     def do_activate(self):
-        window = self.get_active_window() or LauncherWindow(self)
+        window = self.get_active_window()
+        if not window:
+            window = LauncherWindow(self)
+            if MACOS:  # after the window: it sets the launcher's language the menu is written in
+                self.build_mac_menu()
         window.present()
+
+    def build_mac_menu(self):
+        """macOS: the menu bar at the top of the screen (beside the Apple menu) reaches every page
+        and the main actions, with the usual Mac shortcuts."""
+        def action(name, handler, parameter=None):
+            act = Gio.SimpleAction.new(name, GLib.VariantType.new("s") if parameter else None)
+            act.connect("activate", handler)
+            self.add_action(act)
+
+        def window():
+            return self.get_active_window()
+
+        def show_page(_action, value):
+            win = window()
+            if win:
+                win.stack.set_visible_child_name(value.get_string())
+                win.present()
+
+        def about(*_):
+            dialog = Adw.AboutDialog(
+                application_name="CTR-Online on Mac", application_icon=APP_ID,
+                version=port_version() or "", developer_name="Momochan32",
+                website="https://github.com/momochan32/ctr-on-mac",
+                issue_url="https://github.com/momochan32/ctr-on-mac/issues",
+                comments=tr("An unofficial macOS port of OCTR by Momochan32, not affiliated with the projects below. "
+                            "Almost everything here is their work: thank you."),
+                license_type=Gtk.License.GPL_2_0)
+            dialog.add_credit_section(tr("Credits"), [name for name, _role in CREDITS])
+            dialog.present(window())
+
+        action("about", about)
+        action("preferences", lambda *_: show_page(None, GLib.Variant("s", "settings")))
+        action("check-update", lambda *_: window() and window().check_update(manual=True))
+        action("quit", lambda *_: self.quit())
+        action("play", lambda *_: window() and window().on_launch(None))
+        action("open-game-folder", lambda *_: window() and open_folder(window(), window().game_dir()))
+        action("open-saves-folder", lambda *_: window() and open_folder(window(), save_root(window().user_dir())))
+        action("page", show_page, parameter=True)
+        action("open-url", lambda _a, value: open_external(value.get_string()), parameter=True)
+
+        # The application menu (About, Settings…, Hide, Quit) is macOS's own: GTK fills it from
+        # app.about, app.preferences and app.quit.
+        menubar = Gio.Menu()
+        game = Gio.Menu()
+        game.append(tr("Play / Stop"), "app.play")
+        game.append(tr("Open the game folder"), "app.open-game-folder")
+        game.append(tr("Open the saves folder"), "app.open-saves-folder")
+        menubar.append_submenu(tr("Game"), game)
+        view = Gio.Menu()
+        for index, (name, title) in enumerate((("settings", tr("Settings")), ("controls", tr("Controls")),
+                                                ("patches", tr("Patches")), ("mods", tr("Mods")),
+                                                ("dlc", tr("DLC")), ("saves", tr("Saves")),
+                                                ("trophies", tr("Achievements")), ("log", tr("Log"))), 1):
+            item = Gio.MenuItem.new(title, None)
+            item.set_action_and_target_value("app.page", GLib.Variant("s", name))
+            view.append_item(item)
+            self.set_accels_for_action(f"app.page::{name}", [f"<Meta>{index}"])
+        menubar.append_submenu(tr("View"), view)
+        help_menu = Gio.Menu()
+        for title, url in ((tr("Guide (README)"), "https://github.com/momochan32/ctr-on-mac#readme"),
+                           (tr("Telegram group"), COMMUNITY_TELEGRAM),
+                           (tr("Report a bug"), "https://github.com/momochan32/ctr-on-mac/issues"),
+                           ("GitHub", "https://github.com/momochan32/ctr-on-mac")):
+            item = Gio.MenuItem.new(title, None)
+            item.set_action_and_target_value("app.open-url", GLib.Variant("s", url))
+            help_menu.append_item(item)
+        help_menu.append(tr("Check for updates"), "app.check-update")
+        menubar.append_submenu(tr("Help"), help_menu)
+        self.set_menubar(menubar)
+        self.set_accels_for_action("app.preferences", ["<Meta>comma"])
+        self.set_accels_for_action("app.quit", ["<Meta>q"])
+        self.set_accels_for_action("app.play", ["<Meta>Return"])
 
 
 def play():

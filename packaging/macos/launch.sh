@@ -3,7 +3,7 @@
 # (read-only); settings, saves and generated files in ~/Library/Application Support/CTR-Online.
 # The launcher's runtime (Python, GTK 4, libadwaita, bash 5) is bundled in the app
 # (packaging/macos/bundle_runtime.py); a build without it falls back to Homebrew.
-here=${0:A:h}
+here=${0:A:h}                # Contents/Resources (run by the Contents/MacOS/CTR-Online stub)
 contents=${here:h}
 res="$contents/Resources"
 port="$res/port"
@@ -22,7 +22,7 @@ if [[ -x $python ]]; then
     # The image loaders' cache names their paths: written for wherever the app is.
     cache="$BB_DATA_DIR/gdk-pixbuf-loaders.cache"
     sed "s|@APP_LOADERS@|$contents/Frameworks/gdk-pixbuf/loaders|g" \
-        "$contents/Frameworks/gdk-pixbuf/loaders.cache.in" > "$cache" 2>/dev/null
+        "$res/gdk-pixbuf-loaders.cache.in" > "$cache" 2>/dev/null
     export GDK_PIXBUF_MODULE_FILE="$cache"
 else
     export PATH=/opt/homebrew/bin:/usr/bin:/bin
