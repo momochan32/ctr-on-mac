@@ -120,6 +120,10 @@ The game's code is PS4 (x86-64) code, and it runs directly on the CPU through Ap
 
 The launcher checks this repository's releases at start. When a new version is out, a banner offers **Update**: it downloads the DMG, checks it and replaces the app; your settings and saves stay where they are.
 
+## Community
+
+Help, updates and discussion for the Mac version: **[Telegram group t.me/ctronmac](https://t.me/ctronmac)**. Questions about the online server itself (rules, bans) belong in the OCTR community.
+
 ## About online play
 
 Online play uses the **OCTR project's RyuNET server**, not a server run by this fork.

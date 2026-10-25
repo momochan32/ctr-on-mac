@@ -63,7 +63,7 @@ CONFIG_FILE = CONFIG_DIR / "settings.json"
 MAX_LOG_LINES = 5000
 COMMUNITY_DISCORD = "https://discord.gg/PAT5SJzdXw"  # the RyuNET server's community: bans, appeals
 # Momochan32: this fork's own group for the Mac version (help, updates). Empty: the row is hidden.
-COMMUNITY_TELEGRAM = ""
+COMMUNITY_TELEGRAM = "https://t.me/ctronmac"
 RANK_SITE = "https://crashteamrank.vercel.app"  # record validation; ranked play later
 UNSUPPORTED_GPU_CODE = 24  # the game found no Vulkan 1.3 (GPU, driver or loader): vk_platform.h
 TITLE = "CTR-Online on Mac (By Momochan32)"
