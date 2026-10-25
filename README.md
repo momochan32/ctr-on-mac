@@ -55,7 +55,7 @@ The game features (online, patches, 21:9 layouts, FSR, mods, achievements) **are
 
 ## Other macOS work
 
-An independent macOS port of OCTR by **Ilyo D'Urso (idurso-hidonix)** was published a few days before this one: [OCTR-NitroFueled-PC, branch `macos-apple-silicon`](https://github.com/idurso-hidonix/OCTR-NitroFueled-PC/tree/macos-apple-silicon). Both reached similar solutions for the runtime (guest TLS through a pthread key, the guest range above 0x7000000000, the window on the main thread). The main difference is the graphics driver: that port uses **MoltenVK** (with its own geometry-shader emulation for fur), this one uses **Mesa KosmicKrisp**, which supports geometry shaders natively. Thanks to them for their work and their documentation.
+An independent macOS port of OCTR by **Ilyo D'Urso (idurso-hidonix)** was published a few days before this one: [OCTR-NitroFueled-PC, branch `macos-apple-silicon`](https://github.com/idurso-hidonix/OCTR-NitroFueled-PC/tree/macos-apple-silicon). Both reached similar solutions for the runtime (guest TLS through a pthread key, the guest range above 0x7000000000, the window on the main thread). The main difference is the graphics driver: that port uses **MoltenVK** (with its own geometry-shader emulation for fur), this one uses **Mesa KosmicKrisp**, which supports geometry shaders natively. Thanks to them for their work and their documentation. Because MoltenVK also runs on older systems, that port may be the better choice on macOS 15 or earlier, which this one does not support.
 
 ## On the Mac
 
@@ -91,7 +91,7 @@ These numbers come from personal testing on a single Mac, not an official benchm
 ## Installation
 
 ### Requirements
-- Apple Silicon Mac, macOS 14 or newer (tested on an M3 Max only)
+- Apple Silicon Mac with **macOS 26 (Tahoe) or 27** (tested on an M3 Max only). The graphics driver, Mesa KosmicKrisp, is built on Metal 4, which macOS 26 introduced, so **macOS 15 and older cannot run this port**. On an older macOS, see the MoltenVK-based port in [Other macOS work](#other-macos-work).
 - **Rosetta 2** (see [About Rosetta 2](#about-rosetta-2)). If it is missing, the app tells you how to install it:
   `softwareupdate --install-rosetta --agree-to-license`
 - **Your own game.** A dump of CTR Nitro-Fueled from a console/copy you legally own. The supported version is **CUSA13795 (USA) with the 1.21 update merged**; the European CUSA14876 is experimental. Other versions can be started with **Settings → Allow other game versions (experimental)**, but the patches and online play are made for 1.21 and may not work there. **This repository and its releases do not include, share or link to any game files, firmware or keys.** Requests for game files cannot be answered.
@@ -118,7 +118,7 @@ Settings and saves live in `~/Library/Application Support/CTR-Online`. The in-ga
 The game's code is PS4 (x86-64) code, and it runs directly on the CPU through Apple's **Rosetta 2**, so the game part of the app is an Intel program. The launcher itself is native Apple Silicon.
 
 - Rosetta 2 is installed once per Mac (the app checks it at start).
-- **Apple has announced that macOS 28 removes Rosetta 2.** macOS shows a notice that the app "will not open in macOS 28". On macOS 26 and 27 everything works. **If you want to keep playing, stay on macOS 27 or older** until a solution exists; there is none yet, and it affects every PS4 emulator that runs the game's code this way on a Mac.
+- **Apple has announced that macOS 28 removes Rosetta 2.** macOS shows a notice that the app "will not open in macOS 28". On macOS 26 and 27 everything works. **If you want to keep playing, stay on macOS 26 or 27** until a solution exists; there is none yet, and it affects every PS4 emulator that runs the game's code this way on a Mac.
 
 ## Updates
 

@@ -7,7 +7,7 @@ becomes @rpath/<name>, every reference to it is rewritten to match, and each Mac
 @loader_path rpath to that folder. Everything changed is signed again (ad hoc unless
 --identity names a Developer ID): Apple Silicon refuses to load unsigned code.
 
-usage: bundle_runtime.py <path to .app> [--identity "Developer ID Application: ..."]
+usage: [BB_RUNTIME_PREFIX=<prefix>] bundle_runtime.py <path to .app> [--identity "Developer ID Application: ..."]
 """
 import argparse
 import os
@@ -16,7 +16,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
-BREW = Path("/opt/homebrew")
+# The Homebrew prefix to bundle from: BB_RUNTIME_PREFIX names one with bottles for the oldest macOS
+# the app supports (fetch_runtime.py); the build Mac's own Homebrew only suits its own macOS.
+BREW = Path(os.environ.get("BB_RUNTIME_PREFIX") or "/opt/homebrew").resolve()
 PY_VER = "3.15"
 PY_FRAMEWORK = BREW / f"opt/python@{PY_VER}/Frameworks/Python.framework"
 GI_TYPELIBS = ["Adw-1", "cairo-1.0", "freetype2-2.0", "Gdk-4.0", "GdkMacos-4.0", "GdkPixbuf-2.0",

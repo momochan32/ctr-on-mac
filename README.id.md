@@ -56,7 +56,7 @@ Fitur game (online, patch, layout 21:9, FSR, mods, pencapaian) **adalah karya pr
 
 ## Port macOS lainnya
 
-Port macOS OCTR yang independen oleh **Ilyo D'Urso (idurso-hidonix)** sudah dipublikasikan beberapa hari sebelum port ini: [OCTR-NitroFueled-PC, branch `macos-apple-silicon`](https://github.com/idurso-hidonix/OCTR-NitroFueled-PC/tree/macos-apple-silicon). Keduanya sampai pada solusi runtime yang mirip (TLS guest lewat pthread key, rentang memori di atas 0x7000000000, jendela di main thread). Perbedaan utamanya ada di driver grafis: port tersebut memakai **MoltenVK** (dengan emulasi geometry shader sendiri untuk bulu karakter), sedangkan port ini memakai **Mesa KosmicKrisp**, yang mendukung geometry shader secara langsung. Terima kasih untuk karya dan dokumentasi mereka.
+Port macOS OCTR yang independen oleh **Ilyo D'Urso (idurso-hidonix)** sudah dipublikasikan beberapa hari sebelum port ini: [OCTR-NitroFueled-PC, branch `macos-apple-silicon`](https://github.com/idurso-hidonix/OCTR-NitroFueled-PC/tree/macos-apple-silicon). Keduanya sampai pada solusi runtime yang mirip (TLS guest lewat pthread key, rentang memori di atas 0x7000000000, jendela di main thread). Perbedaan utamanya ada di driver grafis: port tersebut memakai **MoltenVK** (dengan emulasi geometry shader sendiri untuk bulu karakter), sedangkan port ini memakai **Mesa KosmicKrisp**, yang mendukung geometry shader secara langsung. Terima kasih untuk karya dan dokumentasi mereka. Karena MoltenVK juga berjalan di sistem yang lebih lama, port tersebut bisa jadi pilihan yang lebih tepat untuk macOS 15 ke bawah, yang tidak didukung port ini.
 
 ## Tampilan di Mac
 
@@ -92,7 +92,7 @@ Angka ini dari pengujian pribadi di satu Mac, bukan benchmark resmi. Hasil di Ma
 ## Instalasi
 
 ### Yang dibutuhkan
-- Mac Apple Silicon, macOS 14 ke atas (baru dites di M3 Max)
+- Mac Apple Silicon dengan **macOS 26 (Tahoe) atau 27** (baru dites di M3 Max). Driver grafisnya, Mesa KosmicKrisp, dibangun di atas Metal 4 yang baru ada sejak macOS 26, jadi **macOS 15 ke bawah tidak bisa menjalankan port ini**. Untuk macOS yang lebih lama, lihat port berbasis MoltenVK di bagian [Port macOS lain](#port-macos-lainnya).
 - **Rosetta 2** (lihat [Tentang Rosetta 2](#tentang-rosetta-2)). Kalau belum terpasang, aplikasi akan memberi tahu cara memasangnya:
   `softwareupdate --install-rosetta --agree-to-license`
 - **Game milikmu sendiri.** Dump CTR Nitro-Fueled dari konsol/salinan yang kamu miliki secara sah. Versi yang didukung adalah **CUSA13795 (USA) dengan update 1.21 digabung**; versi Eropa CUSA14876 masih eksperimental. Versi lain bisa dijalankan lewat **Pengaturan → Izinkan versi game lain (eksperimental)**, tetapi patch dan mode online dibuat untuk 1.21 dan bisa tidak berfungsi. **Repo dan rilis ini tidak menyertakan, membagikan, atau menautkan file game, firmware, maupun kunci apa pun.** Permintaan file game tidak dapat dilayani.
@@ -119,7 +119,7 @@ Pengaturan dan save disimpan di `~/Library/Application Support/CTR-Online`. Menu
 Kode game adalah kode PS4 (x86-64) yang dijalankan langsung di CPU lewat **Rosetta 2** milik Apple, jadi bagian game dari aplikasi ini adalah program Intel. Launcher-nya sendiri native Apple Silicon.
 
 - Rosetta 2 cukup dipasang sekali per Mac (aplikasi mengeceknya saat dibuka).
-- **Apple sudah mengumumkan bahwa macOS 28 menghapus Rosetta 2.** macOS menampilkan pemberitahuan bahwa aplikasi ini "tidak akan bisa dibuka di macOS 28". Di macOS 26 dan 27 semuanya berjalan normal. **Kalau ingin tetap bermain, tetaplah di macOS 27 atau lebih lama** sampai ada solusinya; saat ini belum ada, dan hal ini berlaku untuk semua emulator PS4 yang menjalankan kode game dengan cara yang sama di Mac.
+- **Apple sudah mengumumkan bahwa macOS 28 menghapus Rosetta 2.** macOS menampilkan pemberitahuan bahwa aplikasi ini "tidak akan bisa dibuka di macOS 28". Di macOS 26 dan 27 semuanya berjalan normal. **Kalau ingin tetap bermain, tetaplah di macOS 26 atau 27** sampai ada solusinya; saat ini belum ada, dan hal ini berlaku untuk semua emulator PS4 yang menjalankan kode game dengan cara yang sama di Mac.
 
 ## Update
 

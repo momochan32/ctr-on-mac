@@ -32,7 +32,12 @@ done
 # The launcher's runtime (Python, GTK 4, libadwaita, bash): no Homebrew needed on the player's Mac.
 bundle_args=()
 [[ -n ${BB_SIGN_IDENTITY:-} ]] && bundle_args=(--identity "$BB_SIGN_IDENTITY")
-/opt/homebrew/bin/python3 packaging/macos/bundle_runtime.py "$app" "${bundle_args[@]}"
+# From bottles for the oldest macOS the app supports (KosmicKrisp needs macOS 26), not from this
+# Mac's Homebrew, whose bottles only suit this Mac's own macOS.
+min_macos=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" packaging/macos/Info.plist)
+runtime=out/runtime-tahoe
+[[ -d $runtime/opt/python@3.15 ]] || /opt/homebrew/bin/python3 packaging/macos/fetch_runtime.py "$runtime" --tag arm64_tahoe
+BB_RUNTIME_PREFIX=$runtime /opt/homebrew/bin/python3 packaging/macos/bundle_runtime.py "$app" "${bundle_args[@]}"
 # The app's version (Info.plist): what the launcher compares with the latest GitHub release.
 version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" packaging/macos/Info.plist)
 printf 'v%s-macos\n' "$version" > "$port/VERSION"
@@ -52,6 +57,15 @@ codesign "${sign_args[@]}" "$py_fw/Versions/3.15/Resources/Python.app"
 codesign "${sign_args[@]}" "$py_fw/Versions/3.15"
 codesign "${sign_args[@]}" "$app"
 codesign --verify --deep --strict "$app" && echo "Signed: ${BB_SIGN_IDENTITY:-ad hoc}"
+# Every executable must start on the oldest macOS the app claims: one built for a newer macOS stops the build.
+too_new=$(find "$app" -type f -print0 | while IFS= read -r -d '' f; do
+    minos=$(otool -l "$f" 2>/dev/null | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
+    [[ -n $minos ]] && [[ $(printf '%s\n%s\n' "$min_macos" "$minos" | sort -V | tail -1) != "$min_macos" ]] &&
+        echo "  needs macOS $minos: ${f#$app/}"
+    true
+done)
+if [[ -n $too_new ]]; then echo "Built for a macOS newer than $min_macos:"; echo "$too_new" | head -20; exit 1; fi
+echo "Every executable runs on macOS $min_macos"
 ln -s /Applications "$stage/Applications"
 rm -f "out/$name.dmg"
 hdiutil create -volname "$name" -srcfolder "$stage" -ov -format UDZO "out/$name.dmg" >/dev/null
