@@ -99,8 +99,9 @@ Angka ini dari pengujian pribadi di satu Mac, bukan benchmark resmi. Hasil di Ma
 
 ### Pertama kali jalan
 1. **Pengaturan → Game**: pilih folder game yang berisi `eboot.bin`.
-2. (Opsional) **Online (RyuNET)**: nyalakan dan isi nickname.
-3. Tekan **Main**. Start pertama menyiapkan shader (sekitar 2 menit).
+2. Tekan **Main**. Saat pertama kali, launcher meminta kamu **memilih nickname sendiri** (3–16 huruf, angka, `_` atau `-`). Tidak ada nickname yang diisikan otomatis: game baru bisa dimulai setelah nickname yang valid diisi. Nickname ini adalah namamu di dalam game dan saat online, dan instalasi pertama yang memakainya secara online akan memilikinya. Bisa diganti nanti di **Pengaturan → Online (RyuNET)**.
+3. (Opsional) **Online (RyuNET)**: nyalakan di Pengaturan untuk balapan dengan pemain lain.
+4. Start pertama menyiapkan shader (sekitar 2 menit).
 
 Pengaturan dan save disimpan di `~/Library/Application Support/CTR-Online`. Menu di dalam game dibuka dengan **Shift + W** (atau F1 / Insert / L3+R3).
 

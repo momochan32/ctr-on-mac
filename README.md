@@ -98,8 +98,9 @@ These numbers come from personal testing on a single Mac, not an official benchm
 
 ### First start
 1. **Settings → Game**: choose the game folder that contains `eboot.bin`.
-2. (Optional) **Online (RyuNET)**: turn it on and enter a nickname.
-3. Press **Play**. The first start prepares the shaders (about 2 minutes).
+2. Press **Play**. The first time, the launcher asks you to **choose your own nickname** (3–16 letters, digits, `_` or `-`). Nothing is filled in for you: Play starts the game only once a valid nickname is set. It is your name in the game and online, and the first installation to use a nickname online keeps it. You can change it later in **Settings → Online (RyuNET)**.
+3. (Optional) **Online (RyuNET)**: turn it on in Settings to race other players.
+4. The first start prepares the shaders (about 2 minutes).
 
 Settings and saves live in `~/Library/Application Support/CTR-Online`. The in-game menu opens with **Shift + W** (or F1 / Insert / L3+R3).
 

@@ -422,5 +422,9 @@
   "The Windows build: MSAA, fur and other rendering fixes": "Build Windows: perbaikan MSAA, bulu karakter, dan rendering",
   "An unofficial macOS port of OCTR by Momochan32, not affiliated with the projects below. Almost everything here is their work: thank you.": "Port macOS tidak resmi dari OCTR oleh Momochan32, tidak berafiliasi dengan proyek-proyek di bawah. Hampir semua yang ada di sini adalah karya mereka: terima kasih.",
   "Output resolution": "Resolusi output",
-  "The size of the picture sent to the screen: 4K for a 4K monitor. The 3D scene is drawn at the internal resolution above (4K internal is heavy; 1080p or 1440p with a 4K output is smoother).": "Ukuran gambar yang dikirim ke layar: pilih 4K untuk monitor 4K. Scene 3D digambar di resolusi internal di atas (internal 4K berat; 1080p atau 1440p dengan output 4K lebih lancar)."
+  "The size of the picture sent to the screen: 4K for a 4K monitor. The 3D scene is drawn at the internal resolution above (4K internal is heavy; 1080p or 1440p with a 4K output is smoother).": "Ukuran gambar yang dikirim ke layar: pilih 4K untuk monitor 4K. Scene 3D digambar di resolusi internal di atas (internal 4K berat; 1080p atau 1440p dengan output 4K lebih lancar).",
+  "Choose your nickname": "Pilih nickname kamu",
+  "Your nickname is your name in the game and online. 3-16 letters, digits, _ or -. The first installation to use a nickname online keeps it.": "Nickname adalah namamu di dalam game dan saat online. 3–16 huruf, angka, _ atau -. Instalasi pertama yang memakai sebuah nickname secara online akan memilikinya.",
+  "Nickname": "Nickname",
+  "Save and play": "Simpan dan main"
 }

@@ -3165,14 +3165,39 @@ class LauncherWindow(Adw.ApplicationWindow):
         adj = self.log_scroller.get_vadjustment()
         GLib.idle_add(lambda: adj.set_value(adj.get_upper()) and False)
 
+    def ask_nickname(self):
+        """Play without a nickname: a dialog asks for one, saves it and starts the game."""
+        dialog = Adw.AlertDialog(
+            heading=tr("Choose your nickname"),
+            body=tr("Your nickname is your name in the game and online. 3-16 letters, digits, _ or -. "
+                    "The first installation to use a nickname online keeps it."))
+        entry = Gtk.Entry(placeholder_text=tr("Nickname"), max_length=16, activates_default=True)
+        dialog.set_extra_child(entry)
+        dialog.add_response("cancel", tr("Cancel"))
+        dialog.add_response("play", tr("Save and play"))
+        dialog.set_default_response("play")
+        dialog.set_response_appearance("play", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_enabled("play", False)
+        entry.connect("changed", lambda e: dialog.set_response_enabled("play", nick_ok(e.get_text().strip())))
+
+        def done(_dialog, response):
+            name = entry.get_text().strip()
+            if response != "play" or not nick_ok(name):
+                return
+            self.nick_row.set_text(name)
+            self.store()
+            self.on_launch(None)
+        dialog.connect("response", done)
+        dialog.present(self)
+
     def on_launch(self, _button):
         if self.process:
             self.stop_game()
             return
         self.store()
-        if self.ini.get("online") == "1" and not nick_ok(self.ini.get("online_name", "")):
-            self.toasts.add_toast(Adw.Toast(title=tr("Online play needs your own nickname (3-16 letters, digits, _ or -; not RyuPC or Player)"),
-                                            timeout=8))
+        # Every player chooses their own nickname before the first start (nothing is filled in).
+        if not nick_ok(self.ini.get("online_name", "")):
+            self.ask_nickname()
             return
         self.log_view.get_buffer().set_text("")
         self.issue_notice.set_visible(False)
