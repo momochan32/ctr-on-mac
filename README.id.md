@@ -89,17 +89,16 @@ Angka ini dari pengujian pribadi di satu Mac, bukan benchmark resmi. Hasil di Ma
 
 ### Yang dibutuhkan
 - Mac Apple Silicon, macOS 14 ke atas (baru dites di M3 Max)
-- **Rosetta 2**: `softwareupdate --install-rosetta --agree-to-license`
-- **Homebrew** ([brew.sh](https://brew.sh)):
-  ```sh
-  brew install bash python gtk4 libadwaita pygobject3 adwaita-icon-theme
-  ```
-- **Game milikmu sendiri.** Dump CTR Nitro-Fueled **CUSA13795 v1.21** (base + update digabung) dari konsol/salinan yang kamu miliki secara sah. **Repo dan rilis ini tidak menyertakan, membagikan, atau menautkan file game, firmware, maupun kunci apa pun.** Permintaan file game tidak dapat dilayani.
+- **Rosetta 2** (lihat [Tentang Rosetta 2](#tentang-rosetta-2)). Kalau belum terpasang, aplikasi akan memberi tahu cara memasangnya:
+  `softwareupdate --install-rosetta --agree-to-license`
+- **Game milikmu sendiri.** Dump CTR Nitro-Fueled dari konsol/salinan yang kamu miliki secara sah. Versi yang didukung adalah **CUSA13795 (USA) dengan update 1.21 digabung**; versi Eropa CUSA14876 masih eksperimental. Versi lain bisa dijalankan lewat **Pengaturan → Izinkan versi game lain (eksperimental)**, tetapi patch dan mode online dibuat untuk 1.21 dan bisa tidak berfungsi. **Repo dan rilis ini tidak menyertakan, membagikan, atau menautkan file game, firmware, maupun kunci apa pun.** Permintaan file game tidak dapat dilayani.
+
+Tidak perlu yang lain: Python, GTK 4, dan bash sudah dibundel di dalam aplikasi (tanpa Homebrew).
 
 ### Pasang
 1. Unduh `CTR-Online-on-Mac.dmg` dari [Releases](https://github.com/momochan32/ctr-on-mac/releases).
 2. Buka DMG, lalu seret **CTR-Online on Mac** ke **Applications**.
-3. Aplikasi ini tidak ditandatangani Apple. Saat pertama kali dibuka: klik kanan → **Open** → **Open**.
+3. Kalau macOS bilang developer tidak bisa diverifikasi: klik kanan aplikasi → **Open** → **Open** (hanya pertama kali).
 
 ### Pertama kali jalan
 1. **Pengaturan → Game**: pilih folder game yang berisi `eboot.bin`.
@@ -110,6 +109,17 @@ Angka ini dari pengujian pribadi di satu Mac, bukan benchmark resmi. Hasil di Ma
 Pengaturan dan save disimpan di `~/Library/Application Support/CTR-Online`. Menu di dalam game dibuka dengan **Shift + W** (atau F1 / Insert / L3+R3).
 
 ---
+
+## Tentang Rosetta 2
+
+Kode game adalah kode PS4 (x86-64) yang dijalankan langsung di CPU lewat **Rosetta 2** milik Apple, jadi bagian game dari aplikasi ini adalah program Intel. Launcher-nya sendiri native Apple Silicon.
+
+- Rosetta 2 cukup dipasang sekali per Mac (aplikasi mengeceknya saat dibuka).
+- **Apple sudah mengumumkan bahwa macOS 28 menghapus Rosetta 2.** macOS menampilkan pemberitahuan bahwa aplikasi ini "tidak akan bisa dibuka di macOS 28". Di macOS 26 dan 27 semuanya berjalan normal. **Kalau ingin tetap bermain, tetaplah di macOS 27 atau lebih lama** sampai ada solusinya; saat ini belum ada, dan hal ini berlaku untuk semua emulator PS4 yang menjalankan kode game dengan cara yang sama di Mac.
+
+## Update
+
+Launcher mengecek rilis repo ini saat dibuka. Kalau ada versi baru, muncul banner **Update**: launcher mengunduh DMG, memeriksanya, lalu mengganti aplikasinya; pengaturan dan save kamu tetap di tempatnya.
 
 ## Tentang mode online
 

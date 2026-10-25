@@ -182,6 +182,8 @@ DEFAULTS = {
     "clear_shader_cache": False,
     "frame_stats": False,
     "save_log": False,
+    # Other dumps than CUSA13795 / CUSA14876 1.21 (scripts/game_check.py): started without the check.
+    "any_version": False,
     "mangohud": False,
     "vk_validation": False,
     "extra_env": "",
@@ -379,6 +381,8 @@ def game_environment(s):
         env["MANGOHUD"] = "1"
     if s["vk_validation"]:
         env["BB_VK_VALIDATION"] = "1"
+    if s.get("any_version"):
+        env["BB_SKIP_GAME_CHECK"] = "1"  # scripts/game_check.py: other dumps start too (experimental)
     env["BB_DLC"] = "1" if s.get("dlc", True) else "0"
     env["BB_DLC_DISABLED"] = s.get("dlc_disabled", "")
     for item in s["extra_env"].split():
@@ -1186,6 +1190,14 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.game_row.add_suffix(self.game_status)
         self.game_row.add_suffix(flat_button("folder-open-symbolic", tr("Choose the folder with eboot.bin"), self.on_choose_game))
         game.add(self.game_row)
+        self.any_version_row = Adw.SwitchRow(
+            title=tr("Allow other game versions (experimental)"),
+            subtitle=tr("Starts dumps other than the 1.21 update too. The patches (60 FPS, Unlock Everything) and "
+                        "online play are made for 1.21: on other versions they may not apply, and the game may "
+                        "crash or draw wrongly."),
+            active=self.settings.get("any_version", False))
+        self.any_version_row.connect("notify::active", lambda *_: (self.store(), self.update_game_status()))
+        game.add(self.any_version_row)
         self.user_row = Adw.ActionRow(title=tr("Saves and game data folder"))
         self.user_row.add_suffix(flat_button("folder-open-symbolic", tr("Choose the saves and game data folder"), self.on_choose_user))
         self.user_row.add_suffix(flat_button("edit-undo-symbolic", tr("Back to the default folder"), self.on_reset_user))
@@ -1466,8 +1478,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.version_row.add_suffix(check_button)
         about.add(self.version_row)
         if MACOS:
-            check_button.set_visible(False)  # the releases are SacredFire's (Linux, Windows)
-            self.version_row.set_subtitle(tr("macOS build of this fork"))
+            self.version_row.set_subtitle(tr("Checked against the latest release at start"))
         page.add(about)
         page.add(self.credits_group())
         self.update_user_status()
@@ -1502,15 +1513,17 @@ class LauncherWindow(Adw.ApplicationWindow):
         print(f"Launcher: new version {release['tag']} available ({release['name']})", flush=True)
         self.version_row.set_subtitle(tr("New version: %s") % release["tag"])
         self.update_banner.set_title(tr("New version: %s") % release["tag"])
-        self.update_banner.set_button_label(tr("Update") if appimage_update.running_appimage() else tr("Download"))
+        can_install = appimage_update.running_appimage() or (MACOS and appimage_update.running_app())
+        self.update_banner.set_button_label(tr("Update") if can_install else tr("Download"))
         self.update_banner.set_revealed(True)
 
     def on_update(self, _banner):
         release = getattr(self, "update_release", None)
         appimage = appimage_update.running_appimage()
+        mac_app = appimage_update.running_app() if MACOS else None
         if not release:
             return
-        if not appimage:  # a checkout or a Nix build: the release page
+        if not appimage and not mac_app:  # a checkout or a Nix build: the release page
             open_external(appimage_update.RELEASES_PAGE)
             return
         if self.process is not None:
@@ -1529,8 +1542,12 @@ class LauncherWindow(Adw.ApplicationWindow):
 
         def run():
             try:
-                new = appimage_update.install(release, appimage, progress)
-                GLib.idle_add(lambda: self.restart_into(new) and False)
+                if mac_app:
+                    new = appimage_update.install_app(release, mac_app, progress)
+                    GLib.idle_add(lambda: self.restart_app(new) and False)
+                else:
+                    new = appimage_update.install(release, appimage, progress)
+                    GLib.idle_add(lambda: self.restart_into(new) and False)
             except OSError as e:
                 message = str(e)
                 GLib.idle_add(lambda: self.update_failed(message) and False)
@@ -1539,6 +1556,13 @@ class LauncherWindow(Adw.ApplicationWindow):
     def update_failed(self, message):
         self.update_banner.set_title(tr("The update failed (nothing was changed): ") + message)
         self.update_banner.set_button_label(tr("Retry"))
+
+    def restart_app(self, app):
+        """macOS: the updated app opens in place of this launcher."""
+        self.store()
+        subprocess.Popen(["/usr/bin/open", "-n", str(app)], start_new_session=True)
+        self.get_application().quit()
+        return False
 
     def restart_into(self, appimage):
         """The new AppImage starts in place of this launcher (the stable Steam link follows it)."""
@@ -1613,7 +1637,8 @@ class LauncherWindow(Adw.ApplicationWindow):
             tooltip = f"{GAME} {info.get('TITLE_ID', '')}, {info.get('APP_VER', '').lstrip('0')}"
         self.game_status.set_from_icon_name("object-select-symbolic" if ok and not problem else "dialog-warning-symbolic")
         self.game_status.set_tooltip_text(tooltip)
-        self.launch_button.set_sensitive((ok and not problem) or self.process is not None)
+        any_version = self.settings.get("any_version", False) and problem and problem[0] != "split_layout"
+        self.launch_button.set_sensitive((ok and (not problem or any_version)) or self.process is not None)
 
     def choose_folder(self, title, initial, chosen):
         dialog = Gtk.FileDialog(title=title, modal=True)
@@ -1655,6 +1680,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         s["gamepad_name"] = self.gamepad_row.get_selected_item().get_string() if s["gamepad"] else ""
         s["neo"] = self.neo_row.get_active()
         s["fullscreen"] = self.fullscreen_row.get_active()
+        s["any_version"] = self.any_version_row.get_active()
         s["present_mode"] = combo_value(self.present_row)
         s["mangohud"] = self.mangohud_row.get_active()
         s["frame_stats"] = self.stats_row.get_active()
@@ -3211,7 +3237,7 @@ class LauncherWindow(Adw.ApplicationWindow):
                 # run.sh together) and bash 5 from Homebrew, which run.sh needs.
                 self.process = launcher.spawnv([
                     sys.executable, "-c", "import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])",
-                    "/opt/homebrew/bin/bash", str(PORT_DIR / "run.sh")])
+                    os.environ.get("BB_BASH", "/opt/homebrew/bin/bash"), str(PORT_DIR / "run.sh")])
             else:
                 self.process = launcher.spawnv(["setsid", "bash", str(PORT_DIR / "run.sh")])
         except GLib.Error as error:
@@ -3329,7 +3355,7 @@ def play():
     os.chdir(PORT_DIR)
     env = game_environment(settings)
     steam_shortcuts.stable_appimage_link()
-    bash = "/opt/homebrew/bin/bash" if MACOS else "bash"  # macOS: run.sh needs bash 5
+    bash = os.environ.get("BB_BASH", "/opt/homebrew/bin/bash") if MACOS else "bash"  # macOS: run.sh needs bash 5
     if not settings.get("discord_rpc", True):
         os.execvpe(bash, ["bash", str(PORT_DIR / "run.sh")], env)  # nothing to do alongside
     child = subprocess.Popen([bash, str(PORT_DIR / "run.sh")], env=env)

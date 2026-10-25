@@ -88,17 +88,16 @@ These numbers come from personal testing on a single Mac, not an official benchm
 
 ### Requirements
 - Apple Silicon Mac, macOS 14 or newer (tested on an M3 Max only)
-- **Rosetta 2**: `softwareupdate --install-rosetta --agree-to-license`
-- **Homebrew** ([brew.sh](https://brew.sh)):
-  ```sh
-  brew install bash python gtk4 libadwaita pygobject3 adwaita-icon-theme
-  ```
-- **Your own game.** A dump of CTR Nitro-Fueled **CUSA13795 v1.21** (base game with the update merged) from a console/copy you legally own. **This repository and its releases do not include, share or link to any game files, firmware or keys.** Requests for game files cannot be answered.
+- **Rosetta 2** (see [About Rosetta 2](#about-rosetta-2)). If it is missing, the app tells you how to install it:
+  `softwareupdate --install-rosetta --agree-to-license`
+- **Your own game.** A dump of CTR Nitro-Fueled from a console/copy you legally own. The supported version is **CUSA13795 (USA) with the 1.21 update merged**; the European CUSA14876 is experimental. Other versions can be started with **Settings → Allow other game versions (experimental)**, but the patches and online play are made for 1.21 and may not work there. **This repository and its releases do not include, share or link to any game files, firmware or keys.** Requests for game files cannot be answered.
+
+Nothing else is needed: Python, GTK 4 and bash are bundled inside the app (no Homebrew).
 
 ### Install
 1. Download `CTR-Online-on-Mac.dmg` from [Releases](https://github.com/momochan32/ctr-on-mac/releases).
 2. Open the DMG and drag **CTR-Online on Mac** to **Applications**.
-3. The app is not signed by Apple. The first time: right-click → **Open** → **Open**.
+3. If macOS says the developer cannot be verified: right-click the app → **Open** → **Open** (only the first time).
 
 ### First start
 1. **Settings → Game**: choose the game folder that contains `eboot.bin`.
@@ -109,6 +108,17 @@ These numbers come from personal testing on a single Mac, not an official benchm
 Settings and saves live in `~/Library/Application Support/CTR-Online`. The in-game menu opens with **Shift + W** (or F1 / Insert / L3+R3).
 
 ---
+
+## About Rosetta 2
+
+The game's code is PS4 (x86-64) code, and it runs directly on the CPU through Apple's **Rosetta 2**, so the game part of the app is an Intel program. The launcher itself is native Apple Silicon.
+
+- Rosetta 2 is installed once per Mac (the app checks it at start).
+- **Apple has announced that macOS 28 removes Rosetta 2.** macOS shows a notice that the app "will not open in macOS 28". On macOS 26 and 27 everything works. **If you want to keep playing, stay on macOS 27 or older** until a solution exists; there is none yet, and it affects every PS4 emulator that runs the game's code this way on a Mac.
+
+## Updates
+
+The launcher checks this repository's releases at start. When a new version is out, a banner offers **Update**: it downloads the DMG, checks it and replaces the app; your settings and saves stay where they are.
 
 ## About online play
 

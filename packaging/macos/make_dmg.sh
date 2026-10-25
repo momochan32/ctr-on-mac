@@ -20,7 +20,11 @@ cp packaging/macos/icon.png "$port/bin/icon.png"
 cp out/gpu-mac/bb-gpu-capabilities out/gpu-mac/libvulkan.1.dylib \
    out/gpu-mac/libvulkan_kosmickrisp.dylib out/gpu-mac/kosmickrisp_mesa_icd.json "$port/bin/"
 [[ -f out/aerolib.inl ]] && mkdir -p "$port/out" && cp out/aerolib.inl "$port/out/"
-printf '%s-macos\n' "$(git describe --tags --match 'v*' --always 2>/dev/null || echo dev)" > "$port/VERSION"
+# The launcher's runtime (Python, GTK 4, libadwaita, bash): no Homebrew needed on the player's Mac.
+/opt/homebrew/bin/python3 packaging/macos/bundle_runtime.py "$app" ${BB_SIGN_IDENTITY:+--identity "$BB_SIGN_IDENTITY"}
+# The app's version (Info.plist): what the launcher compares with the latest GitHub release.
+version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" packaging/macos/Info.plist)
+printf 'v%s-macos\n' "$version" > "$port/VERSION"
 cp README.md README.id.md "$stage/"
 mkdir -p "$stage/docs" && cp -R docs/macos "$stage/docs/"
 ln -s /Applications "$stage/Applications"
