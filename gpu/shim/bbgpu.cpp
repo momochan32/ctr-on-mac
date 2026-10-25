@@ -281,7 +281,11 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
     Core::Emulator::FillElfInfo(*config);
     const std::string title = config->title ? config->title : "SacredFire";
     const s32 width = config->width, height = config->height;
-    const std::string icon = config->icon ? config->icon : "";
+    // BB_WINDOW_ICON: the window's (and on macOS the Dock's) icon instead of the game's icon0.png.
+    const char* icon_override = std::getenv("BB_WINDOW_ICON");
+    const std::string icon = icon_override && icon_override[0] ? icon_override
+                             : config->icon                    ? config->icon
+                                                               : "";
     auto window_loop = [title, width, height, icon] {
         Common::SetCurrentThreadName("bb:window");
         auto* window = new Frontend::WindowSDL(width, height, title.c_str());

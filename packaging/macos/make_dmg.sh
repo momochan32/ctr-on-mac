@@ -14,7 +14,10 @@ cp packaging/macos/Info.plist "$app/Contents/"
 cp packaging/macos/CTR-Online.icns "$app/Contents/Resources/"
 rsync -a --exclude __pycache__ run.sh run.py scripts tools patches shaders launcher "$port/"
 rm -f "$port/patches/OCTR-Mod-Library.xml"
-cp out/gpu-mac/sacredfire out/gpu-mac/bb-gpu-capabilities out/gpu-mac/libvulkan.1.dylib \
+# The game executable as CTR-Online: the name macOS shows in the menu bar and the Dock.
+cp out/gpu-mac/sacredfire "$port/bin/CTR-Online"
+cp packaging/macos/icon.png "$port/bin/icon.png"
+cp out/gpu-mac/bb-gpu-capabilities out/gpu-mac/libvulkan.1.dylib \
    out/gpu-mac/libvulkan_kosmickrisp.dylib out/gpu-mac/kosmickrisp_mesa_icd.json "$port/bin/"
 [[ -f out/aerolib.inl ]] && mkdir -p "$port/out" && cp out/aerolib.inl "$port/out/"
 printf '%s-macos\n' "$(git describe --tags --match 'v*' --always 2>/dev/null || echo dev)" > "$port/VERSION"
