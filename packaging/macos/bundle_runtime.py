@@ -166,6 +166,18 @@ def copy_python(b):
         subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Add :{key} string {value}", str(py_app / "Info.plist")],
                        check=True, capture_output=True)
     shutil.copy2(Path(__file__).with_name("CTR-Online.icns"), py_app / "Resources" / "CTR-Online.icns")
+    # The Dock names an app by its folder ("Python") unless the bundle declares a localized display
+    # name: the launcher and the game it starts both run as this Python.app.
+    subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Delete :LSHasLocalizedDisplayName", str(py_app / "Info.plist")],
+                   capture_output=True)
+    subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Add :LSHasLocalizedDisplayName bool true",
+                    str(py_app / "Info.plist")], check=True, capture_output=True)
+    for lang in ("en", "id"):
+        lproj = py_app / "Resources" / f"{lang}.lproj"
+        lproj.mkdir(parents=True, exist_ok=True)
+        (lproj / "InfoPlist.strings").write_text(
+            '"CFBundleName" = "CTR-Online on Mac";\n"CFBundleDisplayName" = "CTR-Online on Mac";\n',
+            encoding="utf-8")
     for exe in (interp,):
         for ref in deps(exe):
             if ref.endswith(f"Python.framework/Versions/{PY_VER}/Python"):
