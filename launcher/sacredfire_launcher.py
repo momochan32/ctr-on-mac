@@ -28,7 +28,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 import trophies  # noqa: E402  (launcher/: the Achievements page's files and key)
 
@@ -392,9 +392,17 @@ def game_environment(s):
     return env
 
 
+def capabilities_tool():
+    """bb-gpu-capabilities (gamepads, monitors, reading a key for a binding). Momochan32 (macOS):
+    beside the game in the app bundle (MAC_BIN); BB_PREBUILT is not set there."""
+    if sys.platform == "darwin":
+        return MAC_BIN / "bb-gpu-capabilities"
+    return PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
+
+
 def connected_gamepads():
     """(GUID, name) of the connected gamepads (bb-gpu-capabilities --gamepads), [] if unknown."""
-    tool = PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
+    tool = capabilities_tool()
     try:
         run = subprocess.run([str(tool), "--gamepads"], capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
@@ -421,9 +429,7 @@ def settings_for_display(w, h):
 def connected_displays():
     """(number, label) of the monitors (bb-gpu-capabilities --displays: name, size, primary),
     numbered from 1 as BB_DISPLAY takes them; [] if unknown. DISPLAY_SIZES gets each one's (w, h)."""
-    tool = PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
-    if not tool.exists() and (PORT_DIR / "bin" / "bb-gpu-capabilities").exists():
-        tool = PORT_DIR / "bin" / "bb-gpu-capabilities"  # Momochan32 (macOS): the app bundle's copy
+    tool = capabilities_tool()
     env = dict(os.environ)
     if sys.platform == "darwin":
         # Momochan32 (macOS): the Vulkan loader sits beside the tool.
@@ -991,9 +997,33 @@ def open_folder(window, path):
         Gtk.FileLauncher.new(Gio.File.new_for_path(str(path))).launch(window, None, None)
 
 
+def show_full_value(row):
+    """The chosen value in full: Adwaita cuts it short with "..." even when the row has room.
+    Momochan32: it wraps onto a second line instead; the open list keeps one line per choice."""
+    def label_factory(wrap):
+        factory = Gtk.SignalListItemFactory()
+
+        def setup(_factory, item):
+            label = Gtk.Label(xalign=1 if wrap else 0)
+            if wrap:
+                label.set_wrap(True)
+                label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                label.set_justify(Gtk.Justification.RIGHT)
+                label.set_max_width_chars(44)
+            item.set_child(label)
+
+        factory.connect("setup", setup)
+        factory.connect("bind", lambda _f, item: item.get_child().set_text(item.get_item().get_string()))
+        return factory
+
+    row.set_factory(label_factory(True))
+    row.set_list_factory(label_factory(False))
+    return row
+
+
 def combo_row(title, subtitle, choices, current):
     model = Gtk.StringList.new([tr(choice[0]) for choice in choices])
-    row = Adw.ComboRow(title=title, subtitle=subtitle or "", model=model)
+    row = show_full_value(Adw.ComboRow(title=title, subtitle=subtitle or "", model=model))
     values = [choice[1] for choice in choices]
     row.set_selected(values.index(current) if current in values else 0)
     row.values = values
@@ -1361,8 +1391,8 @@ class LauncherWindow(Adw.ApplicationWindow):
                                             subtitle=tr("Removes window borders in windowed mode."),
                                             active=self.ini.get("borderless") == "1")
         screen.add(self.borderless_row)
-        self.display_row = Adw.ComboRow(title=tr("Monitor"),
-                                        subtitle=tr("The screen the game window and fullscreen go to"))
+        self.display_row = show_full_value(Adw.ComboRow(title=tr("Monitor"),
+                                                        subtitle=tr("The screen the game window and fullscreen go to")))
         self.display_row.values = []
         refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER,
                              tooltip_text=tr("Detect monitors again"))
@@ -1373,7 +1403,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.display_row.connect("notify::selected", lambda *_: self.match_display())
         screen.add(self.display_row)
         self.present_row = combo_row(tr("Presentation"), None, PRESENT_MODES, self.settings["present_mode"])
-        screen.add(self.present_row)
+        # Momochan32 (macOS): FIFO (VSync) is the only mode there, so there is nothing to choose.
+        if sys.platform != "darwin":
+            screen.add(self.present_row)
         self.render_res_row = combo_row(tr("Internal resolution"), tr("Also in the in-game menu"),
                                         RENDER_RESOLUTIONS, self.ini.get("render_res", ""))
         self.render_res_row.set_tooltip_text(
@@ -1394,7 +1426,7 @@ class LauncherWindow(Adw.ApplicationWindow):
                "update, USA or Europe (otherwise the game starts at 16:9); no FSR. The internal resolution picks the variant."),
             WIDESCREEN_LAYOUTS, self.ini.get("widescreen_layout", "off"))
         screen.add(self.layout_row)
-        self.layout_output_row = Adw.ComboRow(title=tr("Screen size"))
+        self.layout_output_row = show_full_value(Adw.ComboRow(title=tr("Screen size")))
         self.layout_output_row.values = []
         screen.add(self.layout_output_row)
         self.layout_row.connect("notify::selected", lambda *_: self.update_layout())
@@ -1985,7 +2017,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.show_binding(kind, name)
 
     def capture_binding(self, kind, name):
-        tool = PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
+        tool = capabilities_tool()
         try:
             process = Gio.Subprocess.new([str(tool), "--read-input", kind], Gio.SubprocessFlags.STDOUT_PIPE)
         except GLib.Error as error:
