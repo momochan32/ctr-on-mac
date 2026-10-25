@@ -406,16 +406,15 @@ DISPLAY_SIZES = {}  # BB_DISPLAY number -> (width, height), filled by connected_
 
 
 def settings_for_display(w, h):
-    """(widescreen layout, screen size, output resolution) that fit a w x h monitor; None where
-    nothing fits (a Retina screen reports points, so its output size is left as it is)."""
+    """(widescreen layout, screen size, output resolution) that fit a w x h monitor (screen size
+    None for 16:9)."""
     ratio = w / h if h else 0
     layout = "32x9" if ratio >= 3.2 else "21x9" if ratio >= 2.2 else "off"
     sizes = [v for _l, v in WIDESCREEN_OUTPUTS.get(layout, [])]
     size = f"{w}x{h}" if f"{w}x{h}" in sizes else \
         min(sizes, key=lambda v: abs(int(v.split("x")[1]) - h)) if sizes else None
-    output = None
-    if h >= 1080:
-        output = "3840x2160" if h >= 2160 else "2560x1440" if h >= 1440 else "1920x1080"
+    # A Retina screen reports points (a 14" MacBook: 1512 x 982): 2560 x 1440 suits its pixels.
+    output = "3840x2160" if h >= 2160 else "2560x1440" if h >= 1440 or h < 1080 else "1920x1080"
     return layout, size, output
 
 
@@ -423,6 +422,8 @@ def connected_displays():
     """(number, label) of the monitors (bb-gpu-capabilities --displays: name, size, primary),
     numbered from 1 as BB_DISPLAY takes them; [] if unknown. DISPLAY_SIZES gets each one's (w, h)."""
     tool = PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
+    if not tool.exists() and (PORT_DIR / "bin" / "bb-gpu-capabilities").exists():
+        tool = PORT_DIR / "bin" / "bb-gpu-capabilities"  # Momochan32 (macOS): the app bundle's copy
     env = dict(os.environ)
     if sys.platform == "darwin":
         # Momochan32 (macOS): the Vulkan loader sits beside the tool.
@@ -445,7 +446,8 @@ def connected_displays():
                 DISPLAY_SIZES[""] = (w, h)  # the "Primary" choice
         except ValueError:
             pass
-        label = f"{number}: {parts[0]} ({parts[1]})"
+        label = f"{parts[0]} ({parts[1].replace('x', ' x ')})" if sys.platform == "darwin" else \
+            f"{number}: {parts[0]} ({parts[1]})"
         if len(parts) > 2 and parts[2] == "1":
             label += " - " + tr("primary")
         found.append((number, label))
@@ -1616,9 +1618,12 @@ class LauncherWindow(Adw.ApplicationWindow):
     def fill_displays(self, current):
         """The Monitor list from the monitors connected now (the Refresh button runs it again)."""
         self.filling_displays = True
-        displays = connected_displays()
-        choices = [(tr("Primary"), "")] + displays
-        if current and current not in [n for n, _ in displays]:
+        displays = [(label, number) for number, label in connected_displays()]
+        # Momochan32 (macOS): the monitors by name only; the primary one is marked in the list.
+        choices = displays if sys.platform == "darwin" and displays else [(tr("Primary"), "")] + displays
+        if not current and sys.platform == "darwin":
+            current = next((n for label, n in displays if label.endswith(tr("primary"))), "")
+        if current and current not in [n for _l, n in displays]:
             choices.append((tr("Monitor {} (not connected)").format(current), current))
         self.display_row.set_model(Gtk.StringList.new([label for label, _v in choices]))
         self.display_row.values = [v for _l, v in choices]
@@ -1627,7 +1632,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def match_display(self):
         """A chosen monitor sets the aspect ratio, screen size and output resolution to its own;
-        an ultrawide one also turns fullscreen on. Each stays changeable afterwards."""
+        fullscreen is on for an ultrawide one and off otherwise. Each stays changeable afterwards."""
         if getattr(self, "filling_displays", False) or not hasattr(self, "layout_output_row"):
             return
         size = DISPLAY_SIZES.get(combo_value(self.display_row))
@@ -1637,10 +1642,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         if layout in self.layout_row.values:
             self.layout_row.set_selected(self.layout_row.values.index(layout))
         self.update_layout(screen_size)
-        if output and output in self.output_res_row.values:
+        if output in self.output_res_row.values:
             self.output_res_row.set_selected(self.output_res_row.values.index(output))
-        if layout != "off":
-            self.fullscreen_row.set_active(True)
+        self.fullscreen_row.set_active(layout != "off")
 
     def update_layout(self, output=None):
         """The screen sizes of the chosen layout (none for 16:9)."""
@@ -1651,7 +1655,8 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.layout_output_row.set_model(Gtk.StringList.new([label for label, _v in choices]))
         self.layout_output_row.values = values
         self.layout_output_row.set_selected(values.index(current) if current in values else 0)
-        self.layout_output_row.set_visible(bool(choices))
+        # Momochan32 (macOS): the screen size follows the chosen monitor (match_display), so it stays hidden.
+        self.layout_output_row.set_visible(bool(choices) and sys.platform != "darwin")
 
     def update_upscaler(self):
         self.sharpness_row.set_visible(combo_value(self.upscaler_row) == "fsr3")
