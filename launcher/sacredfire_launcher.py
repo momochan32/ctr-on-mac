@@ -147,7 +147,8 @@ MAC_INI_DEFAULTS = {"show_fps": "1", "fps_limit": "240", "msaa": "0", "temporal"
                     "render_res": "", "patch_60fps": "1", "patch_no_motion_blur": "1",
                     "patch_pro_1080p": "1", "patch_unlock_all": "1",
                     # 16:9 on the laptop's own screen; the 21:9/32:9 layouts are options
-                    "widescreen_layout": "off", "ultrawide": "0", "output_res": "1920x1080"}
+                    "widescreen_layout": "off", "ultrawide": "0", "output_res": "1920x1080",
+                    "fullscreen": "0"}
 VOLUME_DEFAULT = 100
 # Patches with a bbport.ini key of their own (shared with the in-game menu); other patches are
 # switched in patches.json (scripts/patches.py GAME_PATCH_KEYS).
@@ -327,10 +328,14 @@ def save_ini(values, lines):
 # Momochan32 (macOS): what the macOS build needs, whatever started the launcher. Tuned on an M3 Max:
 # guest memory imported into Vulkan, two frames in flight, six recording threads.
 # The app bundle carries the game executable in bin/; a checkout has it in out/gpu-mac/.
-MAC_BIN = PORT_DIR / "bin" if (PORT_DIR / "bin" / "sacredfire").is_file() else PORT_DIR / "out" / "gpu-mac"
+# The executable's name is what macOS shows in the menu bar and the Dock: CTR-Online in the app.
+MAC_BIN = PORT_DIR / "bin" if (PORT_DIR / "bin" / "CTR-Online").is_file() else PORT_DIR / "out" / "gpu-mac"
+MAC_EXE = MAC_BIN / ("CTR-Online" if (MAC_BIN / "CTR-Online").is_file() else "sacredfire")
+MAC_ICON = PORT_DIR / ("bin" if (PORT_DIR / "bin").is_dir() else "packaging/macos") / "icon.png"
 MAC_ENV = {
     "BB_PREBUILT": "1",
-    "BB_PROBE": str(MAC_BIN / "sacredfire"),
+    "BB_PROBE": str(MAC_EXE),
+    "BB_WINDOW_ICON": str(MAC_ICON),
     "VK_ICD_FILENAMES": str(MAC_BIN / "kosmickrisp_mesa_icd.json"),
     "ROSETTA_ADVERTISE_AVX": "1",
     "BB_GUEST_GPU_MEMORY": "1",

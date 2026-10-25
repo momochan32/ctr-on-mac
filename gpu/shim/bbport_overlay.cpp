@@ -840,13 +840,35 @@ void Menu() {
         pos.y = viewport->WorkPos.y +
                 std::clamp(s.menu_y * viewport->WorkSize.y, 0.0f, std::max(viewport->WorkSize.y - margin, 0.0f));
     }
+    // Wide enough for every tab title at the screen's scale, within the screen: centered unless
+    // it was moved, and never past the right edge.
+    const float menu_width = std::min(1150.0f * base_scale, viewport->WorkSize.x * 0.94f);
+    if (s.menu_x < 0.0f || s.menu_y < 0.0f) {
+        pos.x = viewport->WorkPos.x + (viewport->WorkSize.x - menu_width) * 0.5f;
+    }
+    pos.x = std::clamp(pos.x, viewport->WorkPos.x,
+                       viewport->WorkPos.x + std::max(viewport->WorkSize.x - menu_width, 0.0f));
+    // Tall enough to show most of a tab at once (the rest scrolls), within the screen.
+    const float menu_height = viewport->WorkSize.y * 0.86f;
+    if (s.menu_x < 0.0f || s.menu_y < 0.0f) {
+        pos.y = viewport->WorkPos.y + (viewport->WorkSize.y - menu_height) * 0.5f;
+    }
+    pos.y = std::clamp(pos.y, viewport->WorkPos.y,
+                       viewport->WorkPos.y + std::max(viewport->WorkSize.y - menu_height, 0.0f));
     ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(ImVec2(620.0f * base_scale, 0.0f), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(menu_width, menu_height), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f),
+                                        ImVec2(viewport->WorkSize.x * 0.96f, viewport->WorkSize.y * 0.92f));
     bool keep_open = true;
     // SacredFire: the menu title.
     if (!ImGui::Begin(
+#ifdef __APPLE__
+            BbSettings::MenuText("CTR-Online on Mac  ·  Shift+W / L3+R3###bbport_settings",
+                                 "CTR-Online on Mac  ·  Shift+W / L3+R3###bbport_settings"),
+#else
             BbSettings::MenuText("CTR Nitro-Fueled PC  ·  Insert / L3+R3###bbport_settings",
                                  "CTR Nitro-Fueled PC  ·  Insert / L3+R3###bbport_settings"),
+#endif
             &keep_open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
@@ -1283,6 +1305,11 @@ void Menu() {
         const int current = std::clamp(s.temporal.load(), 0, BbSettings::TemporalCount - 1);
         if (ImGui::BeginCombo(BbSettings::MenuText("Upscaling", "Апскейл"), BbSettings::Label(labels[current]))) {
             for (int t = 0; t < BbSettings::TemporalCount; ++t) {
+#ifdef __APPLE__
+                if (t == BbSettings::TemporalDlss) {
+                    continue; // NVIDIA only: never available on a Mac
+                }
+#endif
                 if (ImGui::Selectable(BbSettings::Label(labels[t]), t == current)) {
                     Store(s.temporal, t, t != current);
                 }
@@ -2168,8 +2195,19 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(float(extent.width), float(extent.height));
     io.DeltaTime = ms > 0.0f && ms < 1000.0f ? ms / 1000.0f : 1.0f / 60.0f;
-    // UI scale follows the display height (1080p = 1).
-    const float scale = std::max(float(extent.height) / 1080.0f, 0.75f);
+    // UI scale follows the display height (1080p = 1), times the screen's content scale: on a
+    // Retina screen (2x) the menu at 1x was half the size it should be. BB_MENU_SCALE overrides it.
+    static const float screen_scale = [] {
+        if (const char* env = std::getenv("BB_MENU_SCALE"); env && std::atof(env) > 0.0f) {
+            return float(std::atof(env));
+        }
+        int count = 0;
+        SDL_Window** windows = SDL_GetWindows(&count);
+        float content = count > 0 && windows ? SDL_GetWindowDisplayScale(windows[0]) : 1.0f;
+        SDL_free(windows);
+        return content > 1.0f ? std::max(1.0f, content * 0.75f) : 1.0f;
+    }();
+    const float scale = std::max(float(extent.height) / 1080.0f, 0.75f) * screen_scale;
     if (std::abs(scale - base_scale) > 0.01f) {
         ImGuiStyle& style = ImGui::GetStyle();
         style.ScaleAllSizes(scale / base_scale);
