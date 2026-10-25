@@ -233,6 +233,7 @@
   "The game hit the known \"clobbered command buffer\" bug (issue #2). Please export this log and attach it to the issue so the cause can be fixed.": "В игре возникла известная ошибка «перезаписанного буфера команд» (issue #2). Экспортируйте этот журнал и приложите к issue, чтобы причину можно было исправить.",
   "The languages of your edition of the game": "Языки вашей версии игры",
   "The screen the game window and fullscreen go to": "Экран для окна игры и полноэкранного режима",
+  "Detect monitors again": "Обнаружить мониторы заново",
   "The server could not be asked (it checks again when you play).": "Не удалось опросить сервер (он проверит снова, когда вы начнёте игру).",
   "The server could not confirm the account with Discord. Try again.": "Сервер не смог подтвердить аккаунт через Discord. Попробуйте ещё раз.",
   "The server did not accept the request.": "Сервер не принял запрос.",

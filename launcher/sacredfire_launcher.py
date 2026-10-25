@@ -402,20 +402,49 @@ def connected_gamepads():
     return [tuple(line.split("\t", 1)) for line in run.stdout.splitlines() if "\t" in line]
 
 
+DISPLAY_SIZES = {}  # BB_DISPLAY number -> (width, height), filled by connected_displays
+
+
+def settings_for_display(w, h):
+    """(widescreen layout, screen size, output resolution) that fit a w x h monitor; None where
+    nothing fits (a Retina screen reports points, so its output size is left as it is)."""
+    ratio = w / h if h else 0
+    layout = "32x9" if ratio >= 3.2 else "21x9" if ratio >= 2.2 else "off"
+    sizes = [v for _l, v in WIDESCREEN_OUTPUTS.get(layout, [])]
+    size = f"{w}x{h}" if f"{w}x{h}" in sizes else \
+        min(sizes, key=lambda v: abs(int(v.split("x")[1]) - h)) if sizes else None
+    output = None
+    if h >= 1080:
+        output = "3840x2160" if h >= 2160 else "2560x1440" if h >= 1440 else "1920x1080"
+    return layout, size, output
+
+
 def connected_displays():
     """(number, label) of the monitors (bb-gpu-capabilities --displays: name, size, primary),
-    numbered from 1 as BB_DISPLAY takes them; [] if unknown."""
+    numbered from 1 as BB_DISPLAY takes them; [] if unknown. DISPLAY_SIZES gets each one's (w, h)."""
     tool = PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
+    env = dict(os.environ)
+    if sys.platform == "darwin":
+        # Momochan32 (macOS): the Vulkan loader sits beside the tool.
+        env["DYLD_FALLBACK_LIBRARY_PATH"] = str(tool.parent)
     try:
-        run = subprocess.run([str(tool), "--displays"], capture_output=True, text=True, timeout=5)
+        run = subprocess.run([str(tool), "--displays"], capture_output=True, text=True, timeout=5, env=env)
     except (OSError, subprocess.SubprocessError):
         return []
     found = []
+    DISPLAY_SIZES.clear()
     for line in run.stdout.splitlines():
         parts = line.strip().split("\t")
         if len(parts) < 2:
             continue
         number = str(len(found) + 1)
+        try:
+            w, h = (int(n) for n in parts[1].lower().split("x"))
+            DISPLAY_SIZES[number] = (w, h)
+            if len(parts) > 2 and parts[2] == "1":
+                DISPLAY_SIZES[""] = (w, h)  # the "Primary" choice
+        except ValueError:
+            pass
         label = f"{number}: {parts[0]} ({parts[1]})"
         if len(parts) > 2 and parts[2] == "1":
             label += " - " + tr("primary")
@@ -1330,12 +1359,16 @@ class LauncherWindow(Adw.ApplicationWindow):
                                             subtitle=tr("Removes window borders in windowed mode."),
                                             active=self.ini.get("borderless") == "1")
         screen.add(self.borderless_row)
-        displays = connected_displays()
-        display_choices = [(tr("Primary"), "")] + displays
-        if self.settings.get("display") and self.settings["display"] not in [n for n, _ in displays]:
-            display_choices.append((tr("Monitor {} (not connected)").format(self.settings["display"]), self.settings["display"]))
-        self.display_row = combo_row(tr("Monitor"), tr("The screen the game window and fullscreen go to"),
-                                     display_choices, self.settings.get("display", ""))
+        self.display_row = Adw.ComboRow(title=tr("Monitor"),
+                                        subtitle=tr("The screen the game window and fullscreen go to"))
+        self.display_row.values = []
+        refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER,
+                             tooltip_text=tr("Detect monitors again"))
+        refresh.add_css_class("flat")
+        refresh.connect("clicked", lambda *_: self.fill_displays(combo_value(self.display_row)))
+        self.display_row.add_suffix(refresh)
+        self.fill_displays(self.settings.get("display", ""))
+        self.display_row.connect("notify::selected", lambda *_: self.match_display())
         screen.add(self.display_row)
         self.present_row = combo_row(tr("Presentation"), None, PRESENT_MODES, self.settings["present_mode"])
         screen.add(self.present_row)
@@ -1579,6 +1612,35 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.neo_row.set_subtitle(tr("Set by the internal resolution (Display)") if chosen else
                                   tr("Neo mode, 7 CPUs, 5568 MiB direct memory: the game's Pro rendering path"))
         self.fill_patches()  # the 1080p Pro patch follows the internal resolution
+
+    def fill_displays(self, current):
+        """The Monitor list from the monitors connected now (the Refresh button runs it again)."""
+        self.filling_displays = True
+        displays = connected_displays()
+        choices = [(tr("Primary"), "")] + displays
+        if current and current not in [n for n, _ in displays]:
+            choices.append((tr("Monitor {} (not connected)").format(current), current))
+        self.display_row.set_model(Gtk.StringList.new([label for label, _v in choices]))
+        self.display_row.values = [v for _l, v in choices]
+        self.display_row.set_selected(self.display_row.values.index(current) if current in self.display_row.values else 0)
+        self.filling_displays = False
+
+    def match_display(self):
+        """A chosen monitor sets the aspect ratio, screen size and output resolution to its own;
+        an ultrawide one also turns fullscreen on. Each stays changeable afterwards."""
+        if getattr(self, "filling_displays", False) or not hasattr(self, "layout_output_row"):
+            return
+        size = DISPLAY_SIZES.get(combo_value(self.display_row))
+        if not size:
+            return
+        layout, screen_size, output = settings_for_display(*size)
+        if layout in self.layout_row.values:
+            self.layout_row.set_selected(self.layout_row.values.index(layout))
+        self.update_layout(screen_size)
+        if output and output in self.output_res_row.values:
+            self.output_res_row.set_selected(self.output_res_row.values.index(output))
+        if layout != "off":
+            self.fullscreen_row.set_active(True)
 
     def update_layout(self, output=None):
         """The screen sizes of the chosen layout (none for 16:9)."""

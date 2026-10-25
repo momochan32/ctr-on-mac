@@ -233,6 +233,7 @@
   "The game hit the known \"clobbered command buffer\" bug (issue #2). Please export this log and attach it to the issue so the cause can be fixed.": "Das Spiel hatte den bekannten Fehler „überschriebener Befehlspuffer“ (Issue #2). Bitte exportiere dieses Log und hänge es an das Issue an, damit die Ursache behoben werden kann.",
   "The languages of your edition of the game": "Die Sprachen deiner Spielversion",
   "The screen the game window and fullscreen go to": "Der Bildschirm für das Spielfenster und den Vollbildmodus",
+  "Detect monitors again": "Monitore erneut erkennen",
   "The server could not be asked (it checks again when you play).": "Der Server konnte nicht gefragt werden (er prüft erneut, wenn du spielst).",
   "The server could not confirm the account with Discord. Try again.": "Der Server konnte das Konto bei Discord nicht bestätigen. Versuche es erneut.",
   "The server did not accept the request.": "Der Server hat die Anfrage nicht angenommen.",
