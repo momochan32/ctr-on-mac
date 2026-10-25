@@ -392,9 +392,17 @@ def game_environment(s):
     return env
 
 
+def capabilities_tool():
+    """bb-gpu-capabilities (gamepads, monitors, reading a key for a binding). Momochan32 (macOS):
+    beside the game in the app bundle (MAC_BIN); BB_PREBUILT is not set there."""
+    if sys.platform == "darwin":
+        return MAC_BIN / "bb-gpu-capabilities"
+    return PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
+
+
 def connected_gamepads():
     """(GUID, name) of the connected gamepads (bb-gpu-capabilities --gamepads), [] if unknown."""
-    tool = PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
+    tool = capabilities_tool()
     try:
         run = subprocess.run([str(tool), "--gamepads"], capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
@@ -421,9 +429,7 @@ def settings_for_display(w, h):
 def connected_displays():
     """(number, label) of the monitors (bb-gpu-capabilities --displays: name, size, primary),
     numbered from 1 as BB_DISPLAY takes them; [] if unknown. DISPLAY_SIZES gets each one's (w, h)."""
-    tool = PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
-    if not tool.exists() and (PORT_DIR / "bin" / "bb-gpu-capabilities").exists():
-        tool = PORT_DIR / "bin" / "bb-gpu-capabilities"  # Momochan32 (macOS): the app bundle's copy
+    tool = capabilities_tool()
     env = dict(os.environ)
     if sys.platform == "darwin":
         # Momochan32 (macOS): the Vulkan loader sits beside the tool.
@@ -1985,7 +1991,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.show_binding(kind, name)
 
     def capture_binding(self, kind, name):
-        tool = PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
+        tool = capabilities_tool()
         try:
             process = Gio.Subprocess.new([str(tool), "--read-input", kind], Gio.SubprocessFlags.STDOUT_PIPE)
         except GLib.Error as error:
