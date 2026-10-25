@@ -21,6 +21,7 @@ from pathlib import Path
 BREW = Path(os.environ.get("BB_RUNTIME_PREFIX") or "/opt/homebrew").resolve()
 PY_VER = "3.15"
 PY_FRAMEWORK = BREW / f"opt/python@{PY_VER}/Frameworks/Python.framework"
+APP_EXE = "CTR-Online on Mac"  # the bundled Python.app's executable (launch.sh starts it)
 GI_TYPELIBS = ["Adw-1", "cairo-1.0", "freetype2-2.0", "Gdk-4.0", "GdkMacos-4.0", "GdkPixbuf-2.0",
                "Gio-2.0", "GioUnix-2.0", "GIRepository-3.0", "GLib-2.0", "GLibUnix-2.0", "GModule-2.0",
                "GObject-2.0", "Graphene-1.0", "Gsk-4.0", "Gtk-4.0", "HarfBuzz-0.0", "Pango-1.0",
@@ -156,7 +157,13 @@ def copy_python(b):
     fw_lib = vdir / "Python"
     subprocess.run(["install_name_tool", "-id", f"@rpath/Python.framework/Versions/{PY_VER}/Python",
                     str(fw_lib)], check=True, capture_output=True)
-    interp = vdir / "Resources" / "Python.app" / "Contents" / "MacOS" / "Python"
+    # The interpreter as "CTR-Online on Mac": macOS names the process (Dock, Activity Monitor,
+    # menu bar) after the executable's file, whatever the bundle's name says.
+    py_exe = vdir / "Resources" / "Python.app" / "Contents" / "MacOS" / "Python"
+    interp = py_exe.with_name(APP_EXE)
+    py_exe.rename(interp)
+    subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Set :CFBundleExecutable {APP_EXE}",
+                    str(vdir / "Resources" / "Python.app" / "Contents" / "Info.plist")], check=True, capture_output=True)
     # The launcher runs as this Python.app: the menu bar and the Dock show its name and icon.
     py_app = vdir / "Resources" / "Python.app" / "Contents"
     for key, value in (("CFBundleName", "CTR-Online on Mac"), ("CFBundleDisplayName", "CTR-Online on Mac"),
@@ -235,7 +242,7 @@ def copy_bash(b):
     python3 = bin_dir / "python3"
     if python3.exists() or python3.is_symlink():
         python3.unlink()
-    python3.symlink_to(f"../../Frameworks/Python.framework/Versions/{PY_VER}/Resources/Python.app/Contents/MacOS/Python")
+    python3.symlink_to(f"../../Frameworks/Python.framework/Versions/{PY_VER}/Resources/Python.app/Contents/MacOS/{APP_EXE}")
 
 
 def main():
