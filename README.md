@@ -53,6 +53,10 @@ The game features (online, patches, 21:9 layouts, FSR, mods, achievements) **are
 
 ---
 
+## Other macOS work
+
+An independent macOS port of OCTR by **Ilyo D'Urso (idurso-hidonix)** was published a few days before this one: [OCTR-NitroFueled-PC, branch `macos-apple-silicon`](https://github.com/idurso-hidonix/OCTR-NitroFueled-PC/tree/macos-apple-silicon). Both reached similar solutions for the runtime (guest TLS through a pthread key, the guest range above 0x7000000000, the window on the main thread). The main difference is the graphics driver: that port uses **MoltenVK** (with its own geometry-shader emulation for fur), this one uses **Mesa KosmicKrisp**, which supports geometry shaders natively. Thanks to them for their work and their documentation.
+
 ## On the Mac
 
 | Ultrawide 21:9 (2560×1080) | MacBook Pro (fullscreen 2560×1440) |

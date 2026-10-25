@@ -54,6 +54,10 @@ Fitur game (online, patch, layout 21:9, FSR, mods, pencapaian) **adalah karya pr
 
 ---
 
+## Port macOS lainnya
+
+Port macOS OCTR yang independen oleh **Ilyo D'Urso (idurso-hidonix)** sudah dipublikasikan beberapa hari sebelum port ini: [OCTR-NitroFueled-PC, branch `macos-apple-silicon`](https://github.com/idurso-hidonix/OCTR-NitroFueled-PC/tree/macos-apple-silicon). Keduanya sampai pada solusi runtime yang mirip (TLS guest lewat pthread key, rentang memori di atas 0x7000000000, jendela di main thread). Perbedaan utamanya ada di driver grafis: port tersebut memakai **MoltenVK** (dengan emulasi geometry shader sendiri untuk bulu karakter), sedangkan port ini memakai **Mesa KosmicKrisp**, yang mendukung geometry shader secara langsung. Terima kasih untuk karya dan dokumentasi mereka.
+
 ## Tampilan di Mac
 
 | Ultrawide 21:9 (2560×1080) | MacBook Pro (fullscreen 2560×1440) |
