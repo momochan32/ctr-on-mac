@@ -6,7 +6,14 @@ from PIL import Image, ImageDraw, ImageFilter
 
 source, out = Path(sys.argv[1]), Path(sys.argv[2])
 size, body, radius = 1024, 824, 185
-art = Image.open(source).convert("RGBA").resize((body, body), Image.LANCZOS)
+art = Image.open(source).convert("RGBA")
+# Art that is already a rounded square on an opaque black background: crop to it (the black
+# corners would show in the Dock), then the mask below makes the corners transparent.
+gray = art.convert("L").point(lambda v: 255 if v > 24 else 0)
+box = gray.getbbox()
+if box and (box[2] - box[0]) < art.width or (box and art.getpixel((2, 2))[:3] == (0, 0, 0)):
+    art = art.crop(box)
+art = art.resize((body, body), Image.LANCZOS)
 mask = Image.new("L", (body, body), 0)
 ImageDraw.Draw(mask).rounded_rectangle((0, 0, body - 1, body - 1), radius=radius, fill=255)
 icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))

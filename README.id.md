@@ -1,4 +1,8 @@
+<p align="center"><img src="docs/macos/icon-256.png" width="128" alt="CTR-Online on Mac icon"></p>
+
 # CTR-Online on Mac — port macOS tidak resmi dari OCTR
+
+![CTR-Online on Mac: main online, ultrawide 21:9, mode PS4 Pro + FSR 3.1, DualSense, installer DMG](docs/macos/banner-id.jpg)
 
 **Bahasa:** [English](README.md) · Bahasa Indonesia
 
