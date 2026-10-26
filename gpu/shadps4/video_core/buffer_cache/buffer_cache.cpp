@@ -505,6 +505,7 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
 #endif
 #ifdef __APPLE__
     DENSE_ARENAS = !instance.IsSparseBufferSupported();
+    std::fprintf(stderr, "Buffer cache: %s arenas\n", DENSE_ARENAS ? "dense" : "sparse");
 #endif
     if (DENSE_ARENAS) {
         arena_page_bits = MIN_ARENA_PAGE_BITS;
