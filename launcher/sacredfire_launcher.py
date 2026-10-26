@@ -69,6 +69,7 @@ UNSUPPORTED_GPU_CODE = 24  # the game found no Vulkan 1.3 (GPU, driver or loader
 TITLE = "CTR-Online on Mac (By Momochan32)"
 SHORT_TITLE, BYLINE = "CTR-Online on Mac", "By Momochan32"  # the sidebar header: two lines
 MACOS = sys.platform == "darwin"
+INTEL_MAC = appimage_update.INTEL_MAC  # the Intel app (its own DMG): MoltenVK only
 GAME = "Crash Team Racing: Nitro-Fueled"
 
 # Choices: (label, value); the first is the default.
@@ -353,9 +354,12 @@ def mac_vulkan_driver():
     except (OSError, subprocess.SubprocessError, ValueError):
         major = 0
     moltenvk = MAC_BIN / "MoltenVK_icd.json"
-    if (major and major < 26 or os.environ.get("BB_MAC_DRIVER") == "moltenvk") and moltenvk.is_file():
+    kosmickrisp = MAC_BIN / "kosmickrisp_mesa_icd.json"
+    # The Intel app has no KosmicKrisp (Apple Silicon only): MoltenVK on every macOS.
+    if (major and major < 26 or os.environ.get("BB_MAC_DRIVER") == "moltenvk" or not kosmickrisp.is_file()) \
+            and moltenvk.is_file():
         return moltenvk
-    return MAC_BIN / "kosmickrisp_mesa_icd.json"
+    return kosmickrisp
 
 
 MAC_ENV = {
@@ -1413,7 +1417,10 @@ class LauncherWindow(Adw.ApplicationWindow):
         if sys.platform == "darwin":
             # Momochan32 (macOS): which Vulkan driver this Mac gets, and that macOS 26 is the better one.
             driver_row = Adw.ActionRow(title=tr("Graphics driver"))
-            if mac_vulkan_driver().name.startswith("MoltenVK"):
+            if INTEL_MAC:
+                driver_row.set_subtitle(tr(
+                    "MoltenVK (Intel Mac). The fur is emulated, and hidden during the Halloween event."))
+            elif mac_vulkan_driver().name.startswith("MoltenVK"):
                 driver_row.set_subtitle(tr(
                     "MoltenVK (compatibility mode for macOS 13.3 to 15). The fur is emulated, and hidden during "
                     "the Halloween event. macOS 26 or later is recommended: it uses KosmicKrisp, with "

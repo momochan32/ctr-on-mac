@@ -9,6 +9,9 @@ res="$contents/Resources"
 port="$res/port"
 export BB_DATA_DIR="$HOME/Library/Application Support/CTR-Online"
 mkdir -p "$BB_DATA_DIR"
+# HTTPS (update check, downloads): the bundled OpenSSL looks for MacPorts' certificates in
+# /opt/local; macOS's own list is used instead (1.2.0 to 1.2.3 could not reach GitHub).
+[[ -z ${SSL_CERT_FILE:-} && -f /etc/ssl/cert.pem ]] && export SSL_CERT_FILE=/etc/ssl/cert.pem
 
 python=$(echo "$contents"/Frameworks/Python.framework/Versions/[0-9]*/Resources/Python.app/Contents/MacOS/"CTR-Online on Mac")
 if [[ -x $python ]]; then
@@ -37,7 +40,14 @@ else
         exit 1
     fi
 fi
-if ! /usr/bin/pgrep -q oahd; then
+# Apple Silicon (also when this runs under Rosetta): the game is Intel code, run by Rosetta 2.
+apple_silicon=$( [[ $(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null) == 1 ]] && echo 1 )
+if [[ -n $apple_silicon && ! -f "$port/bin/kosmickrisp_mesa_icd.json" ]]; then
+    # The Intel app (no KosmicKrisp) on an Apple Silicon Mac.
+    /usr/bin/osascript -e 'display dialog "This is the Intel version of CTR-Online on Mac.\n\nOn a Mac with Apple Silicon (M1 or newer), download CTR-Online-on-Mac.dmg from the releases page instead." buttons {"OK"} default button 1 with title "CTR-Online on Mac"'
+    exit 1
+fi
+if [[ -n $apple_silicon ]] && ! /usr/bin/pgrep -q oahd; then
     /usr/bin/osascript -e 'display dialog "CTR-Online on Mac needs Rosetta 2 (the game runs as Intel code).\n\nOpen Terminal and run:\nsoftwareupdate --install-rosetta --agree-to-license" buttons {"OK"} default button 1 with title "CTR-Online on Mac"'
     exit 1
 fi

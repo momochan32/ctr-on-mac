@@ -1797,6 +1797,9 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     if (gs_emulated) {
         bind_prepared = nullptr;
         if (!RecordGsExportPass(is_indexed, index_offset, gs_param, gs_vertices)) {
+            // The targets PrepareRenderState bound go too: skipped draws (the fur during the
+            // Halloween event) otherwise filled bound_images and aborted the game.
+            ResetBindings(false);
             return;
         }
         is_indexed = false;

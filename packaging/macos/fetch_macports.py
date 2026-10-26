@@ -12,7 +12,7 @@ names (the launcher finds them through DYLD_FALLBACK_LIBRARY_PATH, as with Homeb
 The result is read by bundle_runtime.py like a Homebrew prefix: BB_RUNTIME_PREFIX=<prefix>,
 BB_PY_VER=3.13, BB_PY_FRAMEWORK=<prefix>/Library/Frameworks/Python.framework.
 
-usage: fetch_macports.py <prefix> [--darwin 22]
+usage: fetch_macports.py <prefix> [--darwin 22] [--arch arm64|x86_64]
 """
 import argparse
 import hashlib
@@ -56,18 +56,18 @@ def resolve(roots):
     return found
 
 
-def archive_url(name, info, darwin):
+def archive_url(name, info, darwin, arch):
     """The archive of the port's current version for the release (or one for any release)."""
     try:
         listing = fetch(PACKAGES.format(name)).decode()
     except urllib.error.HTTPError:
         return None
     version = re.escape(info["version"])
-    candidates = re.findall(rf'href="({re.escape(name)}-{version}_\d+[^"]*?\.darwin_(?:{darwin}\.arm64|any\.noarch)\.tbz2)"',
+    candidates = re.findall(rf'href="({re.escape(name)}-{version}_\d+[^"]*?\.darwin_(?:{darwin}\.{arch}|any\.noarch)\.tbz2)"',
                             listing)
     if not candidates:
         # The newest archive built for the release, when the current version has none yet.
-        candidates = re.findall(rf'href="({re.escape(name)}-[^"]*?\.darwin_(?:{darwin}\.arm64|any\.noarch)\.tbz2)"',
+        candidates = re.findall(rf'href="({re.escape(name)}-[^"]*?\.darwin_(?:{darwin}\.{arch}|any\.noarch)\.tbz2)"',
                                 listing)
     if not candidates:
         return None
@@ -127,7 +127,21 @@ def relocate(prefix):
                 args += ["-rpath", old, str(prefix) + old[len(ORIGIN):]]
         if args:
             path.chmod(path.stat().st_mode | 0o200)
-            subprocess.run(["install_name_tool", *args, str(path)], check=True, capture_output=True)
+            try:
+                subprocess.run(["install_name_tool", *args, str(path)], check=True, capture_output=True)
+            except subprocess.CalledProcessError:
+                # The longer paths do not fit its load commands (libgcc's, x86_64): its /opt/local
+                # rpaths are dropped instead (the bundler drops absolute rpaths anyway).
+                short = []
+                i = 0
+                while i < len(args):
+                    if args[i] == "-rpath":
+                        short += ["-delete_rpath", args[i + 1]]
+                        i += 3
+                    else:
+                        short += args[i:i + (2 if args[i] == "-id" else 3)]
+                        i += 2 if args[i] == "-id" else 3
+                subprocess.run(["install_name_tool", *short, str(path)], check=True, capture_output=True)
             subprocess.run(["codesign", "--force", "--sign", "-", str(path)], check=True, capture_output=True)
 
 
@@ -135,16 +149,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("prefix")
     parser.add_argument("--darwin", default="22", help="22: macOS 13, 23: macOS 14")
+    parser.add_argument("--arch", default="arm64", help="arm64 (Apple Silicon) or x86_64 (Intel)")
     args = parser.parse_args()
     prefix = Path(args.prefix).resolve()
     shutil.rmtree(prefix, ignore_errors=True)
     prefix.mkdir(parents=True)
-    cache = prefix.parent / f"macports-darwin{args.darwin}"
+    cache = prefix.parent / (f"macports-darwin{args.darwin}" + ("" if args.arch == "arm64" else f"-{args.arch}"))
     cache.mkdir(exist_ok=True)
     ports = resolve(ROOTS)
     missing = []
     for name, info in sorted(ports.items()):
-        url = archive_url(name, info, args.darwin)
+        url = archive_url(name, info, args.darwin, args.arch)
         if not url:
             missing.append(name)
             continue

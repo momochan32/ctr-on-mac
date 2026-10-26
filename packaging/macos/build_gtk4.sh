@@ -9,29 +9,36 @@
 set -euo pipefail
 runtime=$(cd "$1" && pwd)
 out=$(cd "$(dirname "$0")/../.." && pwd)/out
-dev=$out/macports13-dev
-version=$(ls "$out"/macports-darwin22/gtk4-*.tbz2 | sed -E 's#.*/gtk4-([0-9.]+)_.*#\1#' | sort -V | tail -1)
+# BB_ARCH x86_64 (with BB_DARWIN 23, BB_MACOS_MIN 14.0): the Intel app's runtime.
+arch=${BB_ARCH:-arm64}
+darwin=${BB_DARWIN:-22}
+macos_min=${BB_MACOS_MIN:-13.0}
+if [[ $arch == arm64 && $darwin == 22 ]]; then dev=$out/macports13-dev; build=build
+else dev=$out/macports-dev-darwin$darwin-$arch; build=build-darwin$darwin-$arch; fi
+version=$(ls "$out"/macports-darwin$darwin$([[ $arch == arm64 ]] || echo "-$arch")/gtk4-*.tbz2 | sed -E 's#.*/gtk4-([0-9.]+)_.*#\1#' | sort -V | tail -1)
 work=$out/gtk-$version
 [[ -d $dev/include/glib-2.0 && -x $out/mesonenv/bin/meson ]] || { echo "run build_appstream.sh first"; exit 1; }
 [[ -d $work ]] || curl -fsSL "https://download.gnome.org/sources/gtk/${version%.*}/gtk-$version.tar.xz" | tar -xJ -C "$out"
 
 export PKG_CONFIG=$out/pkgconf-define-prefix PKG_CONFIG_PATH=$dev/lib/pkgconfig:$dev/share/pkgconfig
-export PATH=$out/mesonenv/bin:/opt/homebrew/bin:/usr/bin:/bin:$dev/bin MACOSX_DEPLOYMENT_TARGET=13.0
+export PATH=$out/mesonenv/bin:/opt/homebrew/bin:/usr/bin:/bin:$dev/bin MACOSX_DEPLOYMENT_TARGET=$macos_min
 cd "$work"
-[[ -d build ]] || meson setup build --prefix=/opt/local --buildtype=release \
-    -Dc_args="-I$dev/include -mmacosx-version-min=13.0" -Dobjc_args="-I$dev/include -mmacosx-version-min=13.0" \
-    -Dc_link_args="-L$dev/lib -mmacosx-version-min=13.0" -Dobjc_link_args="-L$dev/lib -mmacosx-version-min=13.0" \
+[[ -d $build ]] || meson setup "$build" --prefix=/opt/local --buildtype=release \
+    -Dc_args="-arch $arch -I$dev/include -mmacosx-version-min=$macos_min" \
+    -Dobjc_args="-arch $arch -I$dev/include -mmacosx-version-min=$macos_min" \
+    -Dc_link_args="-arch $arch -L$dev/lib -mmacosx-version-min=$macos_min" \
+    -Dobjc_link_args="-arch $arch -L$dev/lib -mmacosx-version-min=$macos_min" \
     -Dx11-backend=false -Dwayland-backend=false -Dbroadway-backend=false -Dmacos-backend=true \
     -Dmedia-gstreamer=disabled -Dprint-cpdb=disabled -Dprint-cups=disabled -Dvulkan=disabled \
     -Dcloudproviders=disabled -Dsysprof=disabled -Dtracker=disabled -Dcolord=disabled -Daccesskit=disabled \
     -Dintrospection=disabled -Ddocumentation=false -Dscreenshots=false -Dman-pages=false \
     -Dbuild-demos=false -Dbuild-testsuite=false -Dbuild-examples=false -Dbuild-tests=false >/dev/null
-ninja -C build gtk/libgtk-4.1.dylib >/dev/null
+ninja -C "$build" gtk/libgtk-4.1.dylib >/dev/null
 
 lib=$runtime/lib/libgtk-4.1.dylib
 target=$(readlink -f "$lib" 2>/dev/null || echo "$lib")
 rm -f "$lib"
-cp build/gtk/libgtk-4.1.dylib "$lib"
+cp "$build"/gtk/libgtk-4.1.dylib "$lib"
 if [[ $target != "$lib" ]]; then rm -f "$target"; fi
 args=(-id "$lib")
 while read -r ref; do args+=(-change "$ref" "$runtime${ref#/opt/local}"); done < <(otool -L "$lib" | tail -n +2 | awk '{print $1}' | grep '^/opt/local/')

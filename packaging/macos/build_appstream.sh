@@ -10,9 +10,14 @@ set -euo pipefail
 runtime=$(cd "$1" && pwd)
 version=1.2.0
 out=$(cd "$(dirname "$0")/../.." && pwd)/out
-dev=$out/macports13-dev        # the same archives with headers, only to build against
+# BB_ARCH x86_64 (with BB_DARWIN 23, BB_MACOS_MIN 14.0): the Intel app's runtime.
+arch=${BB_ARCH:-arm64}
+darwin=${BB_DARWIN:-22}
+macos_min=${BB_MACOS_MIN:-13.0}
+if [[ $arch == arm64 && $darwin == 22 ]]; then dev=$out/macports13-dev; build=build
+else dev=$out/macports-dev-darwin$darwin-$arch; build=build-darwin$darwin-$arch; fi
 work=$out/appstream-$version
-archives=$runtime/../macports-darwin22
+archives=$runtime/../macports-darwin$darwin$([[ $arch == arm64 ]] || echo "-$arch")  # headers too
 
 python3 - "$archives" "$dev" <<'EOF'
 import sys, tarfile, pathlib
@@ -36,7 +41,7 @@ EOF
 # MacPorts' glib headers name /opt/local; its code generators only run from /opt/local: the
 # build uses Homebrew's (same output).
 grep -rl "/opt/local/include" "$dev/include" | while read -r f; do chmod u+w "$f"; sed -i '' "s#/opt/local/include#$dev/include#g" "$f"; done
-for tool in glib-mkenums glib-compile-resources glib-genmarshal; do ln -sf "/opt/homebrew/bin/$tool" "$dev/bin/$tool"; done
+for tool in glib-mkenums glib-compile-resources glib-genmarshal gdbus-codegen; do ln -sf "/opt/homebrew/bin/$tool" "$dev/bin/$tool"; done
 
 [[ -x $out/mesonenv/bin/meson ]] || { python3 -m venv "$out/mesonenv" && "$out/mesonenv/bin/pip" -q install meson; }
 if [[ ! -d $work ]]; then
@@ -48,17 +53,18 @@ fi
 printf '#!/bin/sh\nexec /opt/homebrew/bin/pkgconf --define-prefix "$@"\n' > "$out/pkgconf-define-prefix"
 chmod +x "$out/pkgconf-define-prefix"
 export PKG_CONFIG=$out/pkgconf-define-prefix PKG_CONFIG_PATH=$dev/lib/pkgconfig:$dev/share/pkgconfig
-export PATH=$out/mesonenv/bin:/opt/homebrew/bin:/usr/bin:/bin:$dev/bin MACOSX_DEPLOYMENT_TARGET=13.0
+export PATH=$out/mesonenv/bin:/opt/homebrew/bin:/usr/bin:/bin:$dev/bin MACOSX_DEPLOYMENT_TARGET=$macos_min
 cd "$work"
-[[ -d build ]] || meson setup build --prefix=/opt/local --buildtype=release \
-    -Dc_args="-I$dev/include -mmacosx-version-min=13.0" -Dc_link_args="-L$dev/lib -mmacosx-version-min=13.0" \
+[[ -d $build ]] || meson setup "$build" --prefix=/opt/local --buildtype=release \
+    -Dc_args="-arch $arch -I$dev/include -mmacosx-version-min=$macos_min" \
+    -Dc_link_args="-arch $arch -L$dev/lib -mmacosx-version-min=$macos_min" \
     -Dstemming=false -Dsystemd=false -Dvapi=false -Dgir=false -Dtools=false -Ddocs=false -Dapidocs=false \
     -Dinstall-docs=false -Dman=false -Dcompose=false -Dapt-support=false -Dbash-completion=false \
     -Dzstd-support=true -Dqt=false >/dev/null
-ninja -C build >/dev/null
+ninja -C "$build" >/dev/null
 
 lib=$runtime/lib/libappstream.5.dylib
-cp build/src/libappstream.5.dylib "$lib"
+cp "$build"/src/libappstream.5.dylib "$lib"
 args=(-id "$lib")
 while read -r ref; do args+=(-change "$ref" "$runtime${ref#/opt/local}"); done < <(otool -L "$lib" | tail -n +2 | awk '{print $1}' | grep '^/opt/local/')
 # The build folder's rpaths (meson's) would make @rpath look there first.
