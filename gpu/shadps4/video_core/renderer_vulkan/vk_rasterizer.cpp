@@ -1510,20 +1510,6 @@ bool Rasterizer::RecordGsExportPass(bool is_indexed, u32 index_offset, u32& para
     if (count < 3 || slots == 0 || stride == 0 || regs.num_instances.NumInstances() != 1) {
         return BbGsTrace("export: bad counts");
     }
-    // During the Halloween event (its ghosts; BB_THEME=halloween: the server's season theme or
-    // bbport.ini theme=) binding the fur draws' resources loses the device on MoltenVK
-    // (kIOGPUCommandBufferCallbackErrorInvalidResource; cause not found, not with Metal validation
-    // on: docs/sacredfire/19-macos-apple-silicon.md). The fur is skipped then, as before the
-    // emulation, unless BB_GS_EMULATION=all.
-    static const bool skip_for_theme = [] {
-        const char* env = std::getenv("BB_GS_EMULATION");
-        const char* theme = std::getenv("BB_THEME");
-        return !(env && std::strcmp(env, "all") == 0) && theme &&
-               strcasecmp(theme, "halloween") == 0;
-    }();
-    if (skip_for_theme) {
-        return false;
-    }
     const auto* es = gs_export_pipeline; // selected by Draw
     if (!es) {
         return false;
@@ -1797,8 +1783,8 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     if (gs_emulated) {
         bind_prepared = nullptr;
         if (!RecordGsExportPass(is_indexed, index_offset, gs_param, gs_vertices)) {
-            // The targets PrepareRenderState bound go too: skipped draws (the fur during the
-            // Halloween event) otherwise filled bound_images and aborted the game.
+            // The targets PrepareRenderState bound go too: skipped draws otherwise filled
+            // bound_images and aborted the game.
             ResetBindings(false);
             return;
         }

@@ -1,0 +1,14 @@
+diff --git a/MoltenVK/MoltenVK/GPUObjects/MVKQueue.mm b/MoltenVK/MoltenVK/GPUObjects/MVKQueue.mm
+index dec4b45..077473a 100644
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKQueue.mm
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKQueue.mm
+@@ -168,7 +168,8 @@
+ 	uint64_t startTime = getPerformanceTimestamp();
+ 
+ 	MTLCommandBufferDescriptor* mtlCmdBuffDesc = [MTLCommandBufferDescriptor new];	// temp retain
+-	mtlCmdBuffDesc.retainedReferences = retainRefs;
++	static const bool forceRetain = getenv("MVK_FORCE_RETAIN") != nullptr;
++	mtlCmdBuffDesc.retainedReferences = retainRefs || forceRetain;
+ 	if (getMVKConfig().debugMode) {
+ 		mtlCmdBuffDesc.errorOptions |= MTLCommandBufferErrorOptionEncoderExecutionStatus;
+ 	}
