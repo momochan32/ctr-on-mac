@@ -11,6 +11,7 @@ points at <data dir>/SacredFire.AppImage, which the new launcher moves to itself
 import hashlib
 import json
 import os
+import platform
 import re
 import sys
 import urllib.request
@@ -21,7 +22,13 @@ MACOS = sys.platform == "darwin"
 REPO = "momochan32/ctr-on-mac" if MACOS else "Ryu7w7/OCTR-NitroFueled-PC"
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
-ASSET = re.compile(r"^CTR-Online-on-Mac.*\.dmg$" if MACOS else r"^SacredFire-.+-x86_64\.AppImage$")
+# Two DMGs per release: Apple Silicon (CTR-Online-on-Mac.dmg, the name launchers before 1.3.0 look
+# for) and Intel (CTR-Online-on-Intel-Mac.dmg, which their pattern does not match).
+INTEL_MAC = MACOS and platform.machine() == "x86_64"
+if MACOS:
+    ASSET = re.compile(r"^CTR-Online-on-Intel-Mac\.dmg$" if INTEL_MAC else r"^CTR-Online-on-Mac\.dmg$")
+else:
+    ASSET = re.compile(r"^SacredFire-.+-x86_64\.AppImage$")
 
 
 def parse_version(text):
