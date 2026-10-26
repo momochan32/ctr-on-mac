@@ -118,6 +118,8 @@ if sys.platform == "darwin":
     PRESENT_MODES = [("FIFO (VSync)", "Fifo")]
 # The game's FPS limit (bbport.ini fps_limit; the in-game menu offers the same values). Above 30
 # it needs the 60 FPS patch.
+# Momochan32 (macOS): the graphics driver choices (Settings → Display) where KosmicKrisp runs.
+MAC_DRIVERS = [("Automatic", "auto"), ("KosmicKrisp (recommended)", "kosmickrisp"), ("MoltenVK", "moltenvk")]
 FPS_LIMITS = [("No limit", "0"), ("30", "30"), ("60", "60"), ("72 (half of 144 Hz)", "72"),
               ("90", "90"), ("120", "120"), ("144", "144"), ("240", "240")]
 # bbport.ini render_res: the size the game draws its 3D scene at (scripts/patches.py render_plan;
@@ -1430,8 +1432,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         if sys.platform == "darwin":
             # Momochan32 (macOS): the Vulkan driver, and which one suits this Mac.
             if kosmickrisp_available():
-                choices = [("Automatic", "auto"), ("KosmicKrisp (recommended)", "kosmickrisp"),
-                           ("MoltenVK", "moltenvk")]
+                choices = MAC_DRIVERS
                 hint = tr("Recommended for macOS 26 and 27 (M-series and MacBook Neo): KosmicKrisp, "
                           "which Automatic picks: native fur, more features, better performance. "
                           "MoltenVK is the fallback: choose it only if the game shows graphics problems "
