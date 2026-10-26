@@ -433,7 +433,6 @@
   "Report a bug": "Lapor bug",
   "Help": "Bantuan",
   "Graphics driver": "Driver grafis",
-  "KosmicKrisp (recommended, macOS 26 or later)": "KosmicKrisp (disarankan, macOS 26 atau lebih baru)",
   "MoltenVK (compatibility mode for macOS 13.3 to 15). The fur is emulated. macOS 26 or later is recommended: it uses KosmicKrisp, with more features and better performance.": "MoltenVK (mode kompatibilitas untuk macOS 13.3 sampai 15). Bulu karakter diemulasikan. Disarankan macOS 26 atau lebih baru: memakai KosmicKrisp, dengan fitur lebih lengkap dan performa lebih baik.",
   "MoltenVK (Intel Mac). The fur is emulated.": "MoltenVK (Mac Intel). Bulu karakter diemulasikan.",
   "Automatic": "Otomatis",
