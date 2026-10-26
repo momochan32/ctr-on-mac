@@ -17,11 +17,13 @@ cp packaging/macos/CTR-Online.icns "$app/Contents/Resources/"
 rsync -a --exclude __pycache__ run.sh run.py scripts tools patches shaders launcher "$port/"
 rm -f "$port/patches/OCTR-Mod-Library.xml"
 # The game executable as CTR-Online: the name macOS shows in the menu bar and the Dock.
-# BB_GPU_DIR: the game's build (deployment target 15.0); BB_VULKAN_LOADER: a loader built for
-# macOS 15; the drivers: KosmicKrisp (macOS 26+, from the shadPS4 build) and MoltenVK (macOS 15).
+# BB_GPU_DIR: the game's build (deployment target 13.3), brought up to date here (1.2.2 shipped a
+# stale one); BB_VULKAN_LOADER: a loader built for macOS 13.3; the drivers: KosmicKrisp (macOS 26+,
+# from the shadPS4 build) and MoltenVK (macOS 13.3-15).
 gpu=${BB_GPU_DIR:-out/gpu-mvk}
 kosmickrisp=${BB_KOSMICKRISP_DIR:-out/gpu-mac}
 moltenvk=${BB_MOLTENVK_DIR:-out/moltenvk-1.4.2/MoltenVK/MoltenVK/dynamic/dylib/macOS}
+ninja -C "$gpu" sacredfire >/dev/null
 cp "$gpu/sacredfire" "$port/bin/CTR-Online"
 cp packaging/macos/icon.png "$port/bin/icon.png"
 cp "$gpu/bb-gpu-capabilities" "${BB_VULKAN_LOADER:-out/vulkan-loader-build/loader/libvulkan.1.dylib}" \
