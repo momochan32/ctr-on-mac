@@ -1209,6 +1209,11 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.nav.connect("row-selected", self.on_nav_selected)
         scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER, child=self.nav)
         box.append(scroller)
+        # The launcher's version, at the foot of the sidebar.
+        version = Gtk.Label(label="%s %s" % (tr("Version"), port_version() or "?"), xalign=0,
+                            margin_start=16, margin_bottom=12, margin_top=4)
+        version.add_css_class("sf-brand-sub")
+        box.append(version)
         view.set_content(box)
         return view
 
