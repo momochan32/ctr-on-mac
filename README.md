@@ -93,7 +93,7 @@ These numbers come from personal testing on a single Mac, not an official benchm
 ### Requirements
 - Any Apple Silicon Mac (M1 and newer) with **macOS 13.3 or newer** (tested on an M3 Max only).
   - **Recommended: macOS 26 (Tahoe) or newer.** The game then uses Mesa KosmicKrisp (built on Metal 4): full features and the best performance.
-  - **macOS 13.3 to 15: compatibility mode** with MoltenVK. The fur is emulated, and hidden during the Halloween event (drawing it there crashes the GPU driver); performance may be lower. The app picks the right driver by itself, and Settings → Display shows which one is used.
+  - **macOS 13.3 to 15: compatibility mode** with MoltenVK. The fur is emulated; performance may be lower. The app picks the right driver by itself, and Settings → Display shows which one is used.
   - Everything is inside the app (Python, GTK, graphics drivers): nothing else to install except Rosetta 2.
 - **Rosetta 2** (see [About Rosetta 2](#about-rosetta-2)). If it is missing, the app tells you how to install it:
   `softwareupdate --install-rosetta --agree-to-license`
@@ -170,6 +170,7 @@ Thank you to everyone whose work this port is built on:
 - **Ryu7w7** and the OCTR contributors: RyuNET online play, the server, launchers, mods and many fixes.
 - **OCTR contributors** named in its release history, among them tcosi (21:9/32:9 layouts, mods), Brony666 (Linux launcher, Achievements, Mods), SoyAlejandroCalixto, Vo1dTear, n0buholic, MetaHeart and Naif Alqurashi. The full list is in [README-OCTR.md](README-OCTR.md) and this repository's commit history.
 - **bbport**: the original runtime design.
+- **MoltenVK** 1.4.2 (Apache-2.0, KhronosGroup): bundled with one change, `packaging/macos/moltenvk-force-retain.patch` (Metal command buffers retain their resources when `MVK_FORCE_RETAIN` is set; the game sets it during the Halloween event).
 - **Ilyo D'Urso (idurso-hidonix)**: the MoltenVK support and geometry-shader (fur) emulation used on macOS 15, from his macOS port of OCTR (GPL-2.0).
 - **The shadPS4 team**: the graphics core and shader recompiler.
 - **The Mesa / KosmicKrisp developers**: Vulkan on Metal.

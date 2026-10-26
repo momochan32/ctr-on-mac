@@ -344,7 +344,7 @@ MAC_ICON = PORT_DIR / ("bin" if (PORT_DIR / "bin").is_dir() else "packaging/maco
 def mac_vulkan_driver():
     """Momochan32 (macOS): the Vulkan driver's manifest. KosmicKrisp (recommended) needs Metal 4,
     so macOS 26 or later; MoltenVK runs the game on macOS 13.3 to 15 (no geometry shaders: the fur is
-    emulated, and left out during the Halloween event, where drawing it loses the GPU there)."""
+    emulated)."""
     # sw_vers gives the real version: a Python built with an older SDK (the app's, for macOS 13)
     # is told macOS 26 and later are "16.0".
     try:
@@ -1419,11 +1419,11 @@ class LauncherWindow(Adw.ApplicationWindow):
             driver_row = Adw.ActionRow(title=tr("Graphics driver"))
             if INTEL_MAC:
                 driver_row.set_subtitle(tr(
-                    "MoltenVK (Intel Mac). The fur is emulated, and hidden during the Halloween event."))
+                    "MoltenVK (Intel Mac). The fur is emulated."))
             elif mac_vulkan_driver().name.startswith("MoltenVK"):
                 driver_row.set_subtitle(tr(
-                    "MoltenVK (compatibility mode for macOS 13.3 to 15). The fur is emulated, and hidden during "
-                    "the Halloween event. macOS 26 or later is recommended: it uses KosmicKrisp, with "
+                    "MoltenVK (compatibility mode for macOS 13.3 to 15). The fur is emulated. macOS 26 or later "
+                    "is recommended: it uses KosmicKrisp, with "
                     "more features and better performance."))
             else:
                 driver_row.set_subtitle(tr("KosmicKrisp (recommended, macOS 26 or later)"))

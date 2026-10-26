@@ -30,7 +30,7 @@ rm -f "$port/patches/OCTR-Mod-Library.xml"
 # from the shadPS4 build) and MoltenVK (macOS 13.3-15).
 gpu=${BB_GPU_DIR:-out/gpu-mvk}
 kosmickrisp=${BB_KOSMICKRISP_DIR:-out/gpu-mac}
-moltenvk=${BB_MOLTENVK_DIR:-out/moltenvk-1.4.2/MoltenVK/MoltenVK/dynamic/dylib/macOS}
+moltenvk=${BB_MOLTENVK_DIR:-out/mvk-src/Package/Release/MoltenVK/dynamic/dylib/macOS}
 ninja -C "$gpu" sacredfire >/dev/null
 cp "$gpu/sacredfire" "$port/bin/CTR-Online"
 cp packaging/macos/icon.png "$port/bin/icon.png"

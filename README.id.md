@@ -94,7 +94,7 @@ Angka ini dari pengujian pribadi di satu Mac, bukan benchmark resmi. Hasil di Ma
 ### Yang dibutuhkan
 - Mac Apple Silicon apa saja (M1 ke atas) dengan **macOS 13.3 atau lebih baru** (baru dites di M3 Max).
   - **Disarankan: macOS 26 (Tahoe) atau lebih baru.** Game memakai Mesa KosmicKrisp (berbasis Metal 4): fitur lengkap dan performa terbaik.
-  - **macOS 13.3 sampai 15: mode kompatibilitas** dengan MoltenVK. Bulu karakter diemulasikan, dan disembunyikan selama event Halloween (menggambarnya di sana membuat driver GPU crash); performa bisa lebih rendah. App memilih driver yang tepat secara otomatis, dan Pengaturan → Display menunjukkan driver yang dipakai.
+  - **macOS 13.3 sampai 15: mode kompatibilitas** dengan MoltenVK. Bulu karakter diemulasikan; performa bisa lebih rendah. App memilih driver yang tepat secara otomatis, dan Pengaturan → Display menunjukkan driver yang dipakai.
   - Semua sudah ada di dalam app (Python, GTK, driver grafis): tidak perlu memasang apa pun selain Rosetta 2.
 - **Rosetta 2** (lihat [Tentang Rosetta 2](#tentang-rosetta-2)). Kalau belum terpasang, aplikasi akan memberi tahu cara memasangnya:
   `softwareupdate --install-rosetta --agree-to-license`
