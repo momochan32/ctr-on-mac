@@ -113,6 +113,11 @@ public:
     }
 
     /// Returns true if anisotropic filtering is supported
+    /// bbport: sparse buffers (KosmicKrisp has them, MoltenVK not).
+    bool IsSparseBufferSupported() const {
+        return features.sparseBinding && features.sparseResidencyBuffer;
+    }
+
     bool IsAnisotropicFilteringSupported() const {
         return features.samplerAnisotropy;
     }

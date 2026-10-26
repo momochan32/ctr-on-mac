@@ -54,6 +54,10 @@ struct Profile {
     bool needs_unorm_fixup{};
     bool needs_clip_distance_emulation{};
     bool supports_shader_stencil_export{};
+    /// bbport: MoltenVK. SPIRV-Cross turns every NoContraction operation into a call of an
+    /// [[clang::optnone]] helper (spvFMul, spvFAdd, ...): a scene shader of CTR took 43 ms a frame
+    /// on an M1 that way. KosmicKrisp (NIR) keeps it.
+    bool skip_no_contraction{};
 
     bool operator==(const Profile&) const = default;
 };
