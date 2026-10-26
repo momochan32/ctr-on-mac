@@ -180,6 +180,9 @@ DEFAULTS = {
     "gamepad": "",
     "gamepad_name": "",
     "neo": MACOS,
+    # Momochan32 (macOS): the Vulkan driver: "auto" (KosmicKrisp on macOS 26+ on Apple Silicon,
+    # else MoltenVK), "kosmickrisp" or "moltenvk" (mac_vulkan_driver).
+    "mac_driver": "auto",
     "clear_shader_cache": False,
     "frame_stats": False,
     "save_log": False,
@@ -341,23 +344,33 @@ MAC_EXE = MAC_BIN / ("CTR-Online" if (MAC_BIN / "CTR-Online").is_file() else "sa
 MAC_ICON = PORT_DIR / ("bin" if (PORT_DIR / "bin").is_dir() else "packaging/macos") / "icon.png"
 
 
-def mac_vulkan_driver():
-    """Momochan32 (macOS): the Vulkan driver's manifest. KosmicKrisp (recommended) needs Metal 4,
-    so macOS 26 or later; MoltenVK runs the game on macOS 13.3 to 15 (no geometry shaders: the fur is
-    emulated)."""
-    # sw_vers gives the real version: a Python built with an older SDK (the app's, for macOS 13)
-    # is told macOS 26 and later are "16.0".
+def mac_major_version():
+    """Momochan32 (macOS): the major macOS version, 0 if unknown. sw_vers gives the real version: a
+    Python built with an older SDK (the app's, for macOS 13) is told macOS 26 and later are "16.0"."""
     try:
         version = subprocess.run(["/usr/bin/sw_vers", "-productVersion"], capture_output=True, text=True,
                                  timeout=5, env={**os.environ, "SYSTEM_VERSION_COMPAT": "0"}).stdout
-        major = int(version.strip().split(".")[0])
+        return int(version.strip().split(".")[0])
     except (OSError, subprocess.SubprocessError, ValueError):
-        major = 0
+        return 0
+
+
+def kosmickrisp_available():
+    """Momochan32 (macOS): KosmicKrisp needs Metal 4 (macOS 26 or later) and Apple Silicon: the
+    Intel app does not carry it."""
+    major = mac_major_version()
+    return (MAC_BIN / "kosmickrisp_mesa_icd.json").is_file() and not (major and major < 26)
+
+
+def mac_vulkan_driver(choice="auto"):
+    """Momochan32 (macOS): the Vulkan driver's manifest for the launcher's choice (settings
+    "mac_driver"; BB_MAC_DRIVER overrides it). KosmicKrisp (recommended on macOS 26 and 27) runs
+    geometry shaders natively; MoltenVK runs the game on macOS 13.3 to 15 and Intel Macs (the fur
+    is emulated), and is the fallback where KosmicKrisp has trouble."""
+    choice = os.environ.get("BB_MAC_DRIVER") or choice
     moltenvk = MAC_BIN / "MoltenVK_icd.json"
     kosmickrisp = MAC_BIN / "kosmickrisp_mesa_icd.json"
-    # The Intel app has no KosmicKrisp (Apple Silicon only): MoltenVK on every macOS.
-    if (major and major < 26 or os.environ.get("BB_MAC_DRIVER") == "moltenvk" or not kosmickrisp.is_file()) \
-            and moltenvk.is_file():
+    if moltenvk.is_file() and (choice == "moltenvk" or not kosmickrisp_available()):
         return moltenvk
     return kosmickrisp
 
@@ -366,7 +379,6 @@ MAC_ENV = {
     "BB_PREBUILT": "1",
     "BB_PROBE": str(MAC_EXE),
     "BB_WINDOW_ICON": str(MAC_ICON),
-    "VK_ICD_FILENAMES": str(mac_vulkan_driver()),
     "ROSETTA_ADVERTISE_AVX": "1",
     "BB_GUEST_GPU_MEMORY": "1",
     "BB_FRAMES_AHEAD": "2",
@@ -382,6 +394,7 @@ def game_environment(s):
         env.pop("BB_NO_MSAA", None)
         for key, value in MAC_ENV.items():
             env.setdefault(key, value)
+        env.setdefault("VK_ICD_FILENAMES", str(mac_vulkan_driver(s.get("mac_driver", "auto"))))
         env["PATH"] = "/opt/homebrew/bin:" + env.get("PATH", "")
     env["BB_GAME_DIR"] = str(Path(s["game_dir"]).expanduser())
     if s["user_dir"]:
@@ -1415,19 +1428,24 @@ class LauncherWindow(Adw.ApplicationWindow):
 
         screen = Adw.PreferencesGroup(title=tr("Display"))
         if sys.platform == "darwin":
-            # Momochan32 (macOS): which Vulkan driver this Mac gets, and that macOS 26 is the better one.
-            driver_row = Adw.ActionRow(title=tr("Graphics driver"))
-            if INTEL_MAC:
-                driver_row.set_subtitle(tr(
-                    "MoltenVK (Intel Mac). The fur is emulated."))
-            elif mac_vulkan_driver().name.startswith("MoltenVK"):
-                driver_row.set_subtitle(tr(
-                    "MoltenVK (compatibility mode for macOS 13.3 to 15). The fur is emulated. macOS 26 or later "
-                    "is recommended: it uses KosmicKrisp, with "
-                    "more features and better performance."))
+            # Momochan32 (macOS): the Vulkan driver, and which one suits this Mac.
+            if kosmickrisp_available():
+                choices = [("Automatic", "auto"), ("KosmicKrisp (recommended)", "kosmickrisp"),
+                           ("MoltenVK", "moltenvk")]
+                hint = tr("Recommended for macOS 26 and 27 (M-series and MacBook Neo): KosmicKrisp, "
+                          "which Automatic picks: native fur, more features, better performance. "
+                          "MoltenVK is the fallback: choose it only if the game shows graphics problems "
+                          "or does not start with KosmicKrisp.")
             else:
-                driver_row.set_subtitle(tr("KosmicKrisp (recommended, macOS 26 or later)"))
-            screen.add(driver_row)
+                choices = [("MoltenVK", "auto")]
+                hint = tr("MoltenVK (Intel Mac). The fur is emulated.") if INTEL_MAC else tr(
+                    "MoltenVK (compatibility mode for macOS 13.3 to 15). The fur is emulated. macOS 26 or "
+                    "later is recommended: it uses KosmicKrisp, with more features and better performance.")
+            self.driver_row = combo_row(tr("Graphics driver"), hint, choices,
+                                        self.settings.get("mac_driver", "auto"))
+            self.driver_row.set_sensitive(len(choices) > 1)
+            self.driver_row.connect("notify::selected", lambda *_: self.store())
+            screen.add(self.driver_row)
         self.fullscreen_row = Adw.SwitchRow(title=tr("Fullscreen"), active=self.settings["fullscreen"])
         screen.add(self.fullscreen_row)
         self.borderless_row = Adw.SwitchRow(title=tr("Borderless window"),
@@ -1822,6 +1840,8 @@ class LauncherWindow(Adw.ApplicationWindow):
         s["gamepad_name"] = self.gamepad_row.get_selected_item().get_string() if s["gamepad"] else ""
         s["neo"] = self.neo_row.get_active()
         s["fullscreen"] = self.fullscreen_row.get_active()
+        if hasattr(self, "driver_row"):
+            s["mac_driver"] = combo_value(self.driver_row)
         s["any_version"] = self.any_version_row.get_active()
         s["present_mode"] = combo_value(self.present_row)
         s["mangohud"] = self.mangohud_row.get_active()

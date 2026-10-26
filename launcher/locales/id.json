@@ -435,5 +435,8 @@
   "Graphics driver": "Driver grafis",
   "KosmicKrisp (recommended, macOS 26 or later)": "KosmicKrisp (disarankan, macOS 26 atau lebih baru)",
   "MoltenVK (compatibility mode for macOS 13.3 to 15). The fur is emulated. macOS 26 or later is recommended: it uses KosmicKrisp, with more features and better performance.": "MoltenVK (mode kompatibilitas untuk macOS 13.3 sampai 15). Bulu karakter diemulasikan. Disarankan macOS 26 atau lebih baru: memakai KosmicKrisp, dengan fitur lebih lengkap dan performa lebih baik.",
-  "MoltenVK (Intel Mac). The fur is emulated.": "MoltenVK (Mac Intel). Bulu karakter diemulasikan."
+  "MoltenVK (Intel Mac). The fur is emulated.": "MoltenVK (Mac Intel). Bulu karakter diemulasikan.",
+  "Automatic": "Otomatis",
+  "KosmicKrisp (recommended)": "KosmicKrisp (disarankan)",
+  "Recommended for macOS 26 and 27 (M-series and MacBook Neo): KosmicKrisp, which Automatic picks: native fur, more features, better performance. MoltenVK is the fallback: choose it only if the game shows graphics problems or does not start with KosmicKrisp.": "Disarankan untuk macOS 26 dan 27 (Mac M-series dan MacBook Neo): KosmicKrisp, yang dipilih oleh Otomatis: bulu karakter native, fitur lebih lengkap, performa lebih baik. MoltenVK adalah cadangan: pilih hanya jika grafis bermasalah atau game tidak mau jalan dengan KosmicKrisp."
 }
