@@ -24,7 +24,7 @@
 
 namespace Serialization {
 /* You should increment versions below once corresponding serialization scheme is changed. */
-static constexpr u32 ShaderBinaryVersion = 12u; // bbport: no NoContraction on macOS; GS emulation
+static constexpr u32 ShaderBinaryVersion = 13u; // bbport: no NoContraction on MoltenVK only; GS emulation
 static constexpr u32 ShaderMetaVersion = 10u; // bbport: GS emulation fields in the runtime info
 static constexpr u32 PipelineKeyVersion = 8u; // bbport: GS emulation pass in the key
 } // namespace Serialization

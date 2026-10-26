@@ -69,14 +69,21 @@ class BufferCache {
     // Windows driver: 2 GiB); an arena spans up to two pages, so they shrink to half the limit.
     static constexpr u64 MAX_ARENA_PAGE_BITS = 32;
 #ifdef __APPLE__
-    // macOS: no Metal driver has sparse binding, so arenas are ordinary buffers backed in full
-    // (DENSE_ARENAS): 128 MiB pages keep the memory of the pages the game touches low.
+    // macOS without sparse binding (MoltenVK): arenas are ordinary buffers backed in full
+    // (DENSE_ARENAS, set by the constructor): 128 MiB pages keep the memory of the pages the game
+    // touches low. KosmicKrisp has sparse binding and keeps the sparse arenas.
     static constexpr u64 MIN_ARENA_PAGE_BITS = 27;
-    static constexpr bool DENSE_ARENAS = true;
+    static inline bool DENSE_ARENAS = true;
 #else
     static constexpr u64 MIN_ARENA_PAGE_BITS = 30;
     static constexpr bool DENSE_ARENAS = false;
 #endif
+public:
+    static bool DenseArenas() {
+        return DENSE_ARENAS;
+    }
+
+private:
     static constexpr u64 MAX_ARENA_PAGES = u64{1} << (ADDRESS_SPACE_BITS - MIN_ARENA_PAGE_BITS);
     static constexpr u64 MIN_BLOCK_SIZE = 16_KB;
 

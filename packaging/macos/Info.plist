@@ -7,7 +7,7 @@
 <key>CFBundleExecutable</key><string>CTR-Online</string>
 <key>CFBundleIconFile</key><string>CTR-Online</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.2.1</string>
+<key>CFBundleShortVersionString</key><string>1.2.2</string>
 <key>LSMinimumSystemVersion</key><string>13.3</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

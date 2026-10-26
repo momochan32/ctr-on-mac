@@ -503,7 +503,10 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         --arena_page_bits;
     }
 #endif
-    if constexpr (DENSE_ARENAS) {
+#ifdef __APPLE__
+    DENSE_ARENAS = !instance.IsSparseBufferSupported();
+#endif
+    if (DENSE_ARENAS) {
         arena_page_bits = MIN_ARENA_PAGE_BITS;
     }
     arena_page_size = u64{1} << arena_page_bits;
@@ -1192,7 +1195,7 @@ const Buffer* BufferCache::GetArena(u64 first_block, u64 last_block) {
     const u64 total_size = first_size + last_size;
     const u64 end_block = (first_addr + total_size) >> block_shift;
     auto* new_arena = &arenas.emplace_back(instance, first_addr, total_size, MemoryType::Sparse);
-    if constexpr (DENSE_ARENAS) {
+    if (DENSE_ARENAS) {
         // The old arenas' contents (what the GPU wrote there included) are copied over; commands
         // already recorded keep reading the old ones.
         for (const auto* old_arena : {first_arena, last_arena}) {
@@ -1252,7 +1255,7 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
         return;
     }
     BbStats::Timer timer{BbStats::t_resident};
-    if constexpr (DENSE_ARENAS) {
+    if (DENSE_ARENAS) {
         // The arena has memory behind all of it: the blocks are only recorded as resident.
         for (const auto& range : bind_ranges) {
             Backing backing;
