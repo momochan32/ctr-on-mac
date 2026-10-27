@@ -185,6 +185,7 @@ DEFAULTS = {
     # Momochan32 (macOS): the Vulkan driver: "auto" (KosmicKrisp on macOS 26+ on Apple Silicon,
     # else MoltenVK), "kosmickrisp" or "moltenvk" (mac_vulkan_driver).
     "mac_driver": "auto",
+    "mvk_force_retain": True,
     "clear_shader_cache": False,
     "frame_stats": False,
     "save_log": False,
@@ -397,6 +398,10 @@ def game_environment(s):
         for key, value in MAC_ENV.items():
             env.setdefault(key, value)
         env.setdefault("VK_ICD_FILENAMES", str(mac_vulkan_driver(s.get("mac_driver", "auto"))))
+        # The game has MoltenVK retain its resources (MVK_FORCE_RETAIN) unless the player turned
+        # the switch off.
+        if not s.get("mvk_force_retain", True):
+            env.setdefault("BB_MVK_NO_RETAIN", "1")
         env["PATH"] = "/opt/homebrew/bin:" + env.get("PATH", "")
     env["BB_GAME_DIR"] = str(Path(s["game_dir"]).expanduser())
     if s["user_dir"]:
@@ -1277,6 +1282,12 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.brand_sub.set_label(f"Nitro-Fueled · {region} ({title})" if region and self.settings["game_dir"]
                                  else "Nitro-Fueled")
 
+    def update_retain_row(self):
+        """Momochan32 (macOS): the MoltenVK switch only shows while MoltenVK is the driver."""
+        if hasattr(self, "retain_group"):
+            self.retain_group.set_visible(
+                mac_vulkan_driver(combo_value(self.driver_row)).name == "MoltenVK_icd.json")
+
     def update_launch_button(self):
         running = self.process is not None
         self.launch_button.set_label(tr("Stop") if running else tr("Play"))
@@ -1445,8 +1456,25 @@ class LauncherWindow(Adw.ApplicationWindow):
             self.driver_row = combo_row(tr("Graphics driver"), hint, choices,
                                         self.settings.get("mac_driver", "auto"))
             self.driver_row.set_sensitive(len(choices) > 1)
-            self.driver_row.connect("notify::selected", lambda *_: self.store())
-            screen.add(self.driver_row)
+            self.driver_row.connect("notify::selected", lambda *_: (self.store(), self.update_retain_row()))
+            # The driver and its crash fix come first, above the other display settings.
+            self.driver_group = Adw.PreferencesGroup(title=tr("Graphics driver"))
+            self.driver_group.add(self.driver_row)
+            # MoltenVK only, in a group of its own (on by default): Metal command buffers keep the
+            # resources they use until the GPU is done, without which the device was lost or the
+            # game faulted loading a character on some Macs.
+            self.retain_group = Adw.PreferencesGroup(
+                title=tr("MoltenVK crash fix"),
+                description=tr("Only some Macs need this. Keep it on: if the game crashes with MoltenVK "
+                               "(it closes, or crashes when you choose a character), check that it is on."))
+            self.retain_row = Adw.SwitchRow(
+                title=tr("Keep resources until the GPU is done"),
+                subtitle=tr("Uses a little more memory"),
+                active=self.settings.get("mvk_force_retain", True))
+            self.retain_row.add_prefix(Gtk.Image.new_from_icon_name("dialog-warning-symbolic"))
+            self.retain_row.add_css_class("warning")
+            self.retain_row.connect("notify::active", lambda *_: self.store())
+            self.retain_group.add(self.retain_row)
         self.fullscreen_row = Adw.SwitchRow(title=tr("Fullscreen"), active=self.settings["fullscreen"])
         screen.add(self.fullscreen_row)
         self.borderless_row = Adw.SwitchRow(title=tr("Borderless window"),
@@ -1528,6 +1556,10 @@ class LauncherWindow(Adw.ApplicationWindow):
                         "(Insert or L3+R3), Room tab."),
             active=self.ini.get("show_ping") == "1")
         screen.add(self.ping_row)
+        if hasattr(self, "driver_group"):
+            page.add(self.driver_group)
+            page.add(self.retain_group)
+            self.update_retain_row()
         page.add(screen)
 
         sound = Adw.PreferencesGroup(title=tr("Sound"))
@@ -1843,6 +1875,8 @@ class LauncherWindow(Adw.ApplicationWindow):
         s["fullscreen"] = self.fullscreen_row.get_active()
         if hasattr(self, "driver_row"):
             s["mac_driver"] = combo_value(self.driver_row)
+        if hasattr(self, "retain_row"):
+            s["mvk_force_retain"] = self.retain_row.get_active()
         s["any_version"] = self.any_version_row.get_active()
         s["present_mode"] = combo_value(self.present_row)
         s["mangohud"] = self.mangohud_row.get_active()
