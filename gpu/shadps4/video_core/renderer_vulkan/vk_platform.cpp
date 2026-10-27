@@ -297,11 +297,12 @@ vk::UniqueInstance CreateInstance(Frontend::WindowSystemType window_type, bool e
         std::filesystem::exists(icd_path / "MoltenVK_icd.json")) {
         setenv("VK_DRIVER_FILES", (icd_path / "MoltenVK_icd.json").c_str(), true);
     }
-    // Momochan32: during the Halloween event (BB_THEME=halloween) the emulated fur on MoltenVK
-    // lost the device (Invalid Resource) unless Metal command buffers retain the resources they
-    // use: the bundled MoltenVK (built with MVK_FORCE_RETAIN) does so when this is set.
-    // KosmicKrisp ignores it.
-    if (const char* theme = std::getenv("BB_THEME"); theme && strcasecmp(theme, "halloween") == 0) {
+    // Momochan32: on MoltenVK the device was lost (Invalid Resource) or the game faulted while
+    // loading a character unless Metal command buffers retain the resources they use, with or
+    // without the Halloween theme: the bundled MoltenVK (built with MVK_FORCE_RETAIN) does so
+    // when this is set. KosmicKrisp ignores it. The launcher sets BB_MVK_NO_RETAIN only where
+    // the player turned the MoltenVK switch off.
+    if (!std::getenv("BB_MVK_NO_RETAIN")) {
         setenv("MVK_FORCE_RETAIN", "1", false);
     }
 #endif

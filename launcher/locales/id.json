@@ -437,5 +437,9 @@
   "MoltenVK (Intel Mac). The fur is emulated.": "MoltenVK (Mac Intel). Bulu karakter diemulasikan.",
   "Automatic": "Otomatis",
   "KosmicKrisp (recommended)": "KosmicKrisp (disarankan)",
-  "Recommended for macOS 26 and 27 (M-series and MacBook Neo): KosmicKrisp, which Automatic picks: native fur, more features, better performance. MoltenVK is the fallback: choose it only if the game shows graphics problems or does not start with KosmicKrisp.": "Disarankan untuk macOS 26 dan 27 (Mac M-series dan MacBook Neo): KosmicKrisp, yang dipilih oleh Otomatis: bulu karakter native, fitur lebih lengkap, performa lebih baik. MoltenVK adalah cadangan: pilih hanya jika grafis bermasalah atau game tidak mau jalan dengan KosmicKrisp."
+  "Recommended for macOS 26 and 27 (M-series and MacBook Neo): KosmicKrisp, which Automatic picks: native fur, more features, better performance. MoltenVK is the fallback: choose it only if the game shows graphics problems or does not start with KosmicKrisp.": "Disarankan untuk macOS 26 dan 27 (Mac M-series dan MacBook Neo): KosmicKrisp, yang dipilih oleh Otomatis: bulu karakter native, fitur lebih lengkap, performa lebih baik. MoltenVK adalah cadangan: pilih hanya jika grafis bermasalah atau game tidak mau jalan dengan KosmicKrisp.",
+  "MoltenVK crash fix": "Perbaikan crash MoltenVK",
+  "Keep resources until the GPU is done": "Tahan resource sampai GPU selesai",
+  "Uses a little more memory": "Memakai sedikit lebih banyak memori",
+  "Only some Macs need this. Keep it on: if the game crashes with MoltenVK (it closes, or crashes when you choose a character), check that it is on.": "Hanya dibutuhkan sebagian Mac. Biarkan menyala: jika game crash dengan MoltenVK (tertutup sendiri, atau crash saat memilih karakter), pastikan ini menyala."
 }
