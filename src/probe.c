@@ -591,19 +591,21 @@ static LONG WINAPI unhandled_fault(EXCEPTION_POINTERS *info) { return fatal_exce
 uint32_t runtime_thread_tcb_offset(void);
 #ifdef __APPLE__
 /* Rosetta 2 on macOS 15 faults a vmaskmovps whose masked-out bytes are unmapped (a real CPU does
- * not). CTR 1.21 does that loading a character: the AVX loop at 0x58baf3 reads its weights with
- * vmaskmovps from a NULL array when there are none (guest offset 0x58bbc3, address 0). Its two
- * overlap checks are turned into NOPs so the scalar loop at 0x58ba43, which computes the same
- * and reads only the weights that exist, always runs. Other builds do not match and are left;
- * Intel Macs and macOS 26 or later run the game's code unchanged. */
+ * not). CTR 1.21 does that loading a character: two inlined copies of an AVX loop (at 0x58baf3
+ * and 0x582fe3) read their weights with vmaskmovps from a NULL array when there are none (guest
+ * offsets 0x58bbc3 and 0x5830b3, address 0). In front of each, two overlap checks pick the AVX
+ * loop; they become NOPs so the scalar loop right after them, which computes the same and reads
+ * only the weights that exist, always runs. Each copy is matched byte for byte (jump targets
+ * aside) and its AVX loop must hold that vmaskmovps; Intel Macs and macOS 26 or later run the
+ * game's code unchanged. */
 static void patch_rosetta_masked_loads(uint64_t image_size) {
     static const unsigned char want[] = {
-        0x48,0x39,0xd7, 0x0f,0x83,0xc3,0x00,0x00,0x00,                  /* cmp rdi,rdx; jae 0x58baf3 */
+        0x48,0x39,0xd7, 0x0f,0x83,0,0,0,0,                              /* cmp rdi,rdx; jae avx */
         0x49,0x8d,0x14,0xb4, 0x4c,0x01,0xca, 0x48,0x01,0xca,
-        0x49,0x39,0xd6, 0x0f,0x83,0xb0,0x00,0x00,0x00,                  /* cmp r14,rdx; jae 0x58baf3 */
-        0x31,0xdb};                                                     /* 0x58ba43: the scalar loop */
+        0x49,0x39,0xd6, 0x0f,0x83,0,0,0,0,                              /* cmp r14,rdx; jae avx */
+        0x31,0xdb};                                                     /* the scalar loop */
+    static const unsigned char load[] = {0xc4,0xe2,0x7d,0x2c,0x1f};   /* vmaskmovps ymm3,ymm0,[rdi] */
     static const unsigned char nop6[] = {0x66,0x0f,0x1f,0x44,0x00,0x00};
-    const uint64_t at = 0x58ba27;
     /* Only Rosetta before macOS 26 needs it; BB_SCALAR_MASKED_LOAD=1 forces it (tests). */
     const char *force = getenv("BB_SCALAR_MASKED_LOAD");
     if (!(force && *force == '1')) {
@@ -614,10 +616,24 @@ static void patch_rosetta_masked_loads(uint64_t image_size) {
         if (sysctlbyname("sysctl.proc_translated", &translated, &length, NULL, 0) || !translated) return;
         if (sysctlbyname("kern.osproductversion", version, &version_length, NULL, 0) || atoi(version) >= 26) return;
     }
-    if (image_size < at + sizeof(want) || memcmp(image + at, want, sizeof(want))) return;
-    memcpy(image + at + 3, nop6, sizeof(nop6));
-    memcpy(image + at + 22, nop6, sizeof(nop6));
-    printf("Rosetta: the masked AVX load at 0x58bbc3 replaced by its scalar loop\n");
+    const uint64_t end = image_size;
+    for (uint64_t at = 0; at + sizeof(want) <= end; ++at) {
+        unsigned char *p = image + at;
+        if (p[0] != 0x48 || memcmp(p, want, 5) || memcmp(p + 9, want + 9, 13) || p[22] != 0x0f ||
+            p[23] != 0x83 || p[28] != 0x31 || p[29] != 0xdb)
+            continue;
+        int32_t first, second;
+        memcpy(&first, p + 5, 4);
+        memcpy(&second, p + 24, 4);
+        const uint64_t avx = at + 9 + (int64_t)first;
+        if (at + 28 + (int64_t)second != avx || avx + 0x200 > end) continue;
+        int holds_load = 0;
+        for (uint64_t i = avx; i < avx + 0x200 && !holds_load; ++i) holds_load = !memcmp(image + i, load, sizeof(load));
+        if (!holds_load) continue;
+        memcpy(p + 3, nop6, sizeof(nop6));
+        memcpy(p + 22, nop6, sizeof(nop6));
+        printf("Rosetta: the masked AVX loop at 0x%" PRIx64 " replaced by its scalar loop\n", avx);
+    }
 }
 #endif
 static uint64_t patch_tcb_loads(const Segment *segments, uint64_t count) {
