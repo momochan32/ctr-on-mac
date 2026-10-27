@@ -34,6 +34,9 @@
 #include <sys/syscall.h>
 #include <sys/uio.h>
 #ifdef __APPLE__
+#include <sys/sysctl.h>
+#endif
+#ifdef __APPLE__
 #include <spawn.h>
 #endif
 #endif
@@ -586,6 +589,37 @@ static LONG WINAPI unhandled_fault(EXCEPTION_POINTERS *info) { return fatal_exce
 /* Guest code reads its TCB with `mov rax, gs:[0]` (link_*.py rewrote fs:[0]); on Windows
  * the displacement becomes the TEB TLS slot that holds the guest TCB (runtime_thread.c). */
 uint32_t runtime_thread_tcb_offset(void);
+#ifdef __APPLE__
+/* Rosetta 2 on macOS 15 faults a vmaskmovps whose masked-out bytes are unmapped (a real CPU does
+ * not). CTR 1.21 does that loading a character: the AVX loop at 0x58baf3 reads its weights with
+ * vmaskmovps from a NULL array when there are none (guest offset 0x58bbc3, address 0). Its two
+ * overlap checks are turned into NOPs so the scalar loop at 0x58ba43, which computes the same
+ * and reads only the weights that exist, always runs. Other builds do not match and are left;
+ * Intel Macs and macOS 26 or later run the game's code unchanged. */
+static void patch_rosetta_masked_loads(uint64_t image_size) {
+    static const unsigned char want[] = {
+        0x48,0x39,0xd7, 0x0f,0x83,0xc3,0x00,0x00,0x00,                  /* cmp rdi,rdx; jae 0x58baf3 */
+        0x49,0x8d,0x14,0xb4, 0x4c,0x01,0xca, 0x48,0x01,0xca,
+        0x49,0x39,0xd6, 0x0f,0x83,0xb0,0x00,0x00,0x00,                  /* cmp r14,rdx; jae 0x58baf3 */
+        0x31,0xdb};                                                     /* 0x58ba43: the scalar loop */
+    static const unsigned char nop6[] = {0x66,0x0f,0x1f,0x44,0x00,0x00};
+    const uint64_t at = 0x58ba27;
+    /* Only Rosetta before macOS 26 needs it; BB_SCALAR_MASKED_LOAD=1 forces it (tests). */
+    const char *force = getenv("BB_SCALAR_MASKED_LOAD");
+    if (!(force && *force == '1')) {
+        int translated = 0;
+        size_t length = sizeof(translated);
+        char version[32] = "";
+        size_t version_length = sizeof(version);
+        if (sysctlbyname("sysctl.proc_translated", &translated, &length, NULL, 0) || !translated) return;
+        if (sysctlbyname("kern.osproductversion", version, &version_length, NULL, 0) || atoi(version) >= 26) return;
+    }
+    if (image_size < at + sizeof(want) || memcmp(image + at, want, sizeof(want))) return;
+    memcpy(image + at + 3, nop6, sizeof(nop6));
+    memcpy(image + at + 22, nop6, sizeof(nop6));
+    printf("Rosetta: the masked AVX load at 0x58bbc3 replaced by its scalar loop\n");
+}
+#endif
 static uint64_t patch_tcb_loads(const Segment *segments, uint64_t count) {
     static const unsigned char load[]={0x65,0x48,0x8b,0x04,0x25,0,0,0,0};
     uint32_t displacement=runtime_thread_tcb_offset();
@@ -1271,6 +1305,7 @@ int main(int argc, char **argv) {
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
 #ifdef __APPLE__
     printf("Guest TCB loads redirected to the pthread TSD slot: %" PRIu64 "\n", patch_tcb_loads(segments, ns));
+    patch_rosetta_masked_loads(size);
 #endif
 #ifdef _WIN32
     printf("Guest TCB loads redirected to the TEB TLS slot: %" PRIu64 "\n", patch_tcb_loads(segments, ns));
