@@ -431,8 +431,15 @@ GraphicsPipeline::GraphicsPipeline(
         throw Serialization::CorruptData{"cached graphics pipeline rejected by the driver: " +
                                          vk::to_string(pipeline_result)};
     }
-    ASSERT_MSG(pipeline_result == vk::Result::eSuccess, "Failed to create graphics pipeline: {}",
-               vk::to_string(pipeline_result));
+    if (pipeline_result != vk::Result::eSuccess) {
+        // Momochan32 (macOS): Metal's shader compiler for AMD GPUs (Radeon Pro 5500M, MoltenVK)
+        // can fail with an internal error on a pipeline the others build. The pipeline stays
+        // empty and the draws that need it are skipped (PipelineCache), instead of the game
+        // stopping.
+        LOG_ERROR(Render_Vulkan, "Graphics pipeline {} rejected by the driver ({}): its draws are skipped",
+                  debug_str, vk::to_string(pipeline_result));
+        return;
+    }
     pipeline = std::move(pipe);
     SetObjectName(device, *pipeline, "Graphics Pipeline {}", debug_str);
 }
