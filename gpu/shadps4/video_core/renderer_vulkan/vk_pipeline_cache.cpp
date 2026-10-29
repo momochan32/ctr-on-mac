@@ -492,7 +492,7 @@ const GraphicsPipeline* PipelineCache::TryPreparedPipeline(const PreparedDraw& p
         }
     }
     const auto it = graphics_pipelines.find(prepared.key);
-    return it != graphics_pipelines.end() ? it->second.get() : nullptr;
+    return it != graphics_pipelines.end() && it->second->Handle() ? it->second.get() : nullptr;
 }
 
 namespace {
@@ -558,7 +558,7 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
         return nullptr;
     }
     if (const auto found = graphics_pipelines.find(sel.graphics_key); found != graphics_pipelines.end()) {
-        return found->second.get();
+        return found->second->Handle() ? found->second.get() : nullptr;   // rejected: skipped
     }
     // bbport BB_ASYNC_PIPELINES: being compiled on a worker, or to be.
     const bool skippable = AsyncSkippable(sel, indirect);
@@ -624,6 +624,10 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
         it.value() = std::make_unique<GraphicsPipeline>(
             instance, scheduler, desc_heap, profile, sel.graphics_key, *pipeline_cache, sel.infos,
             sel.runtime_infos, sel.fetch_shader, sel.modules, sdata, false);
+        if (!it.value()->Handle()) {   // rejected by the driver: not cached, its draws skipped
+            sel.fetch_shader.reset();
+            return nullptr;
+        }
 
         RegisterPipelineData(sel.graphics_key, pipeline_hash, sdata);
         ++num_new_pipelines;
@@ -644,6 +648,10 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
 const GraphicsPipeline* PipelineCache::FinishPipeline(const GraphicsPipelineKey& key,
                                                       PendingPipeline& job) {
     const auto pipeline_hash = std::hash<GraphicsPipelineKey>{}(key);
+    if (!job.pipeline->Handle()) {   // rejected by the driver: not cached, its draws skipped
+        graphics_pipelines[key] = std::move(job.pipeline);
+        return nullptr;
+    }
     RegisterPipelineData(key, pipeline_hash, job.sdata);
     ++num_new_pipelines;
     if (EmulatorSettings.IsShaderCollect()) {
