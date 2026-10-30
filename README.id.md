@@ -92,11 +92,12 @@ Angka ini dari pengujian pribadi di satu Mac, bukan benchmark resmi. Hasil di Ma
 ## Instalasi
 
 ### Yang dibutuhkan
-- Mac Apple Silicon apa saja (M1 ke atas, termasuk MacBook Neo dengan A18 Pro) dengan **macOS 13.3 atau lebih baru** (baru dites di M3 Max): **CTR-Online-on-Mac.dmg**.
+- Mac Apple Silicon apa saja (M1 ke atas, termasuk MacBook Neo dengan A18 Pro) dengan **macOS 15 (Sequoia) atau lebih baru** (baru dites di M3 Max): **CTR-Online-on-Mac.dmg**.
+  - **Kenapa tidak bisa macOS 13 atau 14:** game ini kode PS4 (x86-64) yang wajib memakai instruksi CPU **AVX**. Di Apple Silicon game berjalan lewat Rosetta 2, dan Rosetta baru bisa menerjemahkan AVX mulai macOS 15. Di macOS 13 dan 14 game tidak bisa mulai ("this CPU lacks … AVX"), apa pun Mac-nya dan berapa pun RAM-nya: update macOS ke 15 atau lebih baru (semua M1 bisa).
 - Mac Intel dengan **macOS 14 atau lebih baru** (eksperimental, MoltenVK, belum dites di Mac Intel asli): **CTR-Online-on-Intel-Mac.dmg**.
   - **Disarankan: macOS 26 (Tahoe) atau lebih baru.** Game memakai Mesa KosmicKrisp (berbasis Metal 4): fitur lengkap dan performa terbaik.
-  - **macOS 13.3 sampai 15: mode kompatibilitas** dengan MoltenVK. Bulu karakter diemulasikan; performa bisa lebih rendah. App memilih driver yang tepat secara otomatis.
-  - **Pengaturan → Display → Driver grafis:** *Otomatis* (bawaan) memakai KosmicKrisp di macOS 26 dan 27, driver yang disarankan untuk Mac M-series dan MacBook Neo. Pilih *MoltenVK* hanya jika grafis bermasalah atau game tidak mau jalan dengan KosmicKrisp (misalnya di chip yang belum pernah dites). Di macOS 13.3–15 dan Mac Intel, hanya ada MoltenVK.
+  - **macOS 15: mode kompatibilitas** dengan MoltenVK. Bulu karakter diemulasikan; performa bisa lebih rendah. App memilih driver yang tepat secara otomatis.
+  - **Pengaturan → Display → Driver grafis:** *Otomatis* (bawaan) memakai KosmicKrisp di macOS 26 dan 27, driver yang disarankan untuk Mac M-series dan MacBook Neo. Pilih *MoltenVK* hanya jika grafis bermasalah atau game tidak mau jalan dengan KosmicKrisp (misalnya di chip yang belum pernah dites). Di macOS 15 dan Mac Intel, hanya ada MoltenVK.
   - **Pengaturan → Perbaikan crash MoltenVK** (tampil setiap kali driver-nya MoltenVK, menyala secara bawaan): mencegah game crash di sebagian Mac (tertutup sendiri, atau crash saat memilih karakter). Biarkan menyala.
   - Semua sudah ada di dalam app (Python, GTK, driver grafis): tidak perlu memasang apa pun selain Rosetta 2.
 - **Rosetta 2** (lihat [Tentang Rosetta 2](#tentang-rosetta-2)). Kalau belum terpasang, aplikasi akan memberi tahu cara memasangnya:

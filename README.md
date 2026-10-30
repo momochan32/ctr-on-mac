@@ -91,11 +91,12 @@ These numbers come from personal testing on a single Mac, not an official benchm
 ## Installation
 
 ### Requirements
-- Any Apple Silicon Mac (M1 and newer, and the MacBook Neo with the A18 Pro) with **macOS 13.3 or newer** (tested on an M3 Max only): **CTR-Online-on-Mac.dmg**.
+- Any Apple Silicon Mac (M1 and newer, and the MacBook Neo with the A18 Pro) with **macOS 15 (Sequoia) or newer** (tested on an M3 Max only): **CTR-Online-on-Mac.dmg**.
+  - **Why not macOS 13 or 14:** the game is PS4 (x86-64) code that needs the CPU's **AVX** instructions. On Apple Silicon it runs through Rosetta 2, and Rosetta translates AVX only from macOS 15 on. On macOS 13 and 14 the game cannot start ("this CPU lacks … AVX"), whatever the Mac or its memory: update macOS to 15 or newer (every M1 can).
 - An Intel Mac with **macOS 14 or newer** (experimental, MoltenVK, not tested on a real Intel Mac yet): **CTR-Online-on-Intel-Mac.dmg**.
   - **Recommended: macOS 26 (Tahoe) or newer.** The game then uses Mesa KosmicKrisp (built on Metal 4): full features and the best performance.
-  - **macOS 13.3 to 15: compatibility mode** with MoltenVK. The fur is emulated; performance may be lower. The app picks the right driver by itself.
-  - **Settings → Display → Graphics driver:** *Automatic* (default) uses KosmicKrisp on macOS 26 and 27, the recommended driver for M-series Macs and the MacBook Neo. Choose *MoltenVK* only if the game shows graphics problems or does not start with KosmicKrisp (for example on a chip it has not been tested on). On macOS 13.3–15 and Intel Macs, MoltenVK is the only driver.
+  - **macOS 15: compatibility mode** with MoltenVK. The fur is emulated; performance may be lower. The app picks the right driver by itself.
+  - **Settings → Display → Graphics driver:** *Automatic* (default) uses KosmicKrisp on macOS 26 and 27, the recommended driver for M-series Macs and the MacBook Neo. Choose *MoltenVK* only if the game shows graphics problems or does not start with KosmicKrisp (for example on a chip it has not been tested on). On macOS 15 and Intel Macs, MoltenVK is the only driver.
   - **Settings → MoltenVK crash fix** (shown whenever MoltenVK is the driver, on by default): keeps the game from crashing on some Macs (it closes, or crashes when you choose a character). Leave it on.
   - Everything is inside the app (Python, GTK, graphics drivers): nothing else to install except Rosetta 2.
 - **Rosetta 2** (see [About Rosetta 2](#about-rosetta-2)). If it is missing, the app tells you how to install it:

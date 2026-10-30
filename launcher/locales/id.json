@@ -433,7 +433,6 @@
   "Report a bug": "Lapor bug",
   "Help": "Bantuan",
   "Graphics driver": "Driver grafis",
-  "MoltenVK (compatibility mode for macOS 13.3 to 15). The fur is emulated. macOS 26 or later is recommended: it uses KosmicKrisp, with more features and better performance.": "MoltenVK (mode kompatibilitas untuk macOS 13.3 sampai 15). Bulu karakter diemulasikan. Disarankan macOS 26 atau lebih baru: memakai KosmicKrisp, dengan fitur lebih lengkap dan performa lebih baik.",
   "MoltenVK (Intel Mac). The fur is emulated.": "MoltenVK (Mac Intel). Bulu karakter diemulasikan.",
   "Automatic": "Otomatis",
   "KosmicKrisp (recommended)": "KosmicKrisp (disarankan)",
@@ -441,5 +440,6 @@
   "MoltenVK crash fix": "Perbaikan crash MoltenVK",
   "Keep resources until the GPU is done": "Tahan resource sampai GPU selesai",
   "Uses a little more memory": "Memakai sedikit lebih banyak memori",
-  "Only some Macs need this. Keep it on: if the game crashes with MoltenVK (it closes, or crashes when you choose a character), check that it is on.": "Hanya dibutuhkan sebagian Mac. Biarkan menyala: jika game crash dengan MoltenVK (tertutup sendiri, atau crash saat memilih karakter), pastikan ini menyala."
+  "Only some Macs need this. Keep it on: if the game crashes with MoltenVK (it closes, or crashes when you choose a character), check that it is on.": "Hanya dibutuhkan sebagian Mac. Biarkan menyala: jika game crash dengan MoltenVK (tertutup sendiri, atau crash saat memilih karakter), pastikan ini menyala.",
+  "MoltenVK (compatibility mode for macOS 15). The fur is emulated. macOS 26 or later is recommended: it uses KosmicKrisp, with more features and better performance.": "MoltenVK (mode kompatibilitas untuk macOS 15). Bulu karakter diemulasikan. Disarankan macOS 26 atau lebih baru: memakai KosmicKrisp, dengan fitur lebih lengkap dan performa lebih baik."
 }

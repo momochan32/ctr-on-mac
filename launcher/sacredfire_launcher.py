@@ -368,7 +368,7 @@ def kosmickrisp_available():
 def mac_vulkan_driver(choice="auto"):
     """Momochan32 (macOS): the Vulkan driver's manifest for the launcher's choice (settings
     "mac_driver"; BB_MAC_DRIVER overrides it). KosmicKrisp (recommended on macOS 26 and 27) runs
-    geometry shaders natively; MoltenVK runs the game on macOS 13.3 to 15 and Intel Macs (the fur
+    geometry shaders natively; MoltenVK runs the game on macOS 15 and Intel Macs (the fur
     is emulated), and is the fallback where KosmicKrisp has trouble."""
     choice = os.environ.get("BB_MAC_DRIVER") or choice
     moltenvk = MAC_BIN / "MoltenVK_icd.json"
@@ -1451,7 +1451,7 @@ class LauncherWindow(Adw.ApplicationWindow):
             else:
                 choices = [("MoltenVK", "auto")]
                 hint = tr("MoltenVK (Intel Mac). The fur is emulated.") if INTEL_MAC else tr(
-                    "MoltenVK (compatibility mode for macOS 13.3 to 15). The fur is emulated. macOS 26 or "
+                    "MoltenVK (compatibility mode for macOS 15). The fur is emulated. macOS 26 or "
                     "later is recommended: it uses KosmicKrisp, with more features and better performance.")
             self.driver_row = combo_row(tr("Graphics driver"), hint, choices,
                                         self.settings.get("mac_driver", "auto"))
