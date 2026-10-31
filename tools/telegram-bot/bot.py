@@ -2,8 +2,9 @@
 """CTR-Online on Mac community bot for the Telegram group (Python standard library only).
 
 - Welcomes new members (Indonesian + English) with the download, the README and the rules.
-- Anti-spam check: a new member is muted until they press "I'm not a bot"; after
-  VERIFY_SECONDS without it they are removed (they can join again).
+- Join requests are approved at once (no waiting for an admin).
+- Anti-spam check: a new member is muted until they press "I'm not a bot"; nobody is removed
+  (members approved while away used to be removed before they saw the button).
 - Commands: /start /help /download /install /rosetta /nickname /update /bug /rules /credits.
 - Announces new GitHub releases of the repository (checked every RELEASE_POLL seconds).
 - Replies with the rules when someone asks for game files (no link to any game file is ever given).
@@ -30,7 +31,6 @@ TOKEN = os.environ.get("BOT_TOKEN", "")
 API = f"https://api.telegram.org/bot{TOKEN}/"
 REPO = os.environ.get("REPO", "momochan32/ctr-on-mac")
 STATE_FILE = Path(os.environ.get("STATE_FILE", Path(__file__).with_name("state.json")))
-VERIFY_SECONDS = 300
 RELEASE_POLL = 600
 
 REPO_URL = f"https://github.com/{REPO}"
@@ -62,6 +62,7 @@ TEXTS = {
         "/nickname — tentang nickname / about nicknames\n"
         "/update — cara update / how to update\n"
         "/bug — lapor bug / report a bug\n"
+        "/issues — isu yang diketahui &amp; batasan / known issues &amp; limits\n"
         "/rules — aturan grup / group rules\n"
         "/credits — kredit / credits\n\n"
         f"👥 Grup / Group: {GROUP_URL}"
@@ -69,8 +70,9 @@ TEXTS = {
     "download": (
         f"⬇️ <b>Download</b>: <a href=\"{DMG_URL}\">CTR-Online-on-Mac.dmg</a>\n"
         f"📄 README: <a href=\"{README_ID}\">Bahasa Indonesia</a> · <a href=\"{README_EN}\">English</a>\n\n"
-        "Butuh Mac Apple Silicon, Rosetta 2, dan dump game milik sendiri (CUSA13795 v1.21). "
-        "Tidak ada file game yang disediakan. / Needs an Apple Silicon Mac, Rosetta 2 and your own game dump."
+        "Butuh Mac Apple Silicon dengan macOS 15+ (atau Mac Intel, eksperimental), Rosetta 2, dan dump game milik "
+        "sendiri (CUSA13795 v1.21). Tidak ada file game yang disediakan. / Needs an Apple Silicon Mac with macOS 15+ "
+        "(or an Intel Mac, experimental), Rosetta 2 and your own game dump."
     ),
     "install": (
         "🛠 <b>Cara pasang / Install</b>\n"
@@ -113,10 +115,42 @@ TEXTS = {
         "• shadPS4 · Mesa KosmicKrisp · tcosi · illusion · TroyWarez · Camiloop · AMD FSR\n"
         "Tidak berafiliasi dengan Activision, Beenox, atau Sony. / Not affiliated with Activision, Beenox or Sony."
     ),
+    "issues": (
+        "📌 <b>Isu yang diketahui &amp; batasan / Known issues &amp; limits</b>\n\n"
+        "🇮🇩\n"
+        "• <b>Mac Apple Silicon butuh macOS 15 atau lebih baru.</b> Game butuh instruksi AVX, dan Rosetta baru "
+        "mendukungnya mulai macOS 15. macOS 13/14 tidak bisa (\"this CPU lacks … AVX\"): update macOS, semua M1 bisa.\n"
+        "• <b>Disarankan macOS 26/27</b> (driver KosmicKrisp: lebih cepat, bulu karakter asli). macOS 15 memakai "
+        "MoltenVK (mode kompatibilitas, performa bisa lebih rendah).\n"
+        "• <b>macOS 28 menghapus Rosetta 2</b>: tetap di macOS 27 atau lebih lama untuk terus bermain.\n"
+        "• <b>Mac Intel</b> (macOS 14+): eksperimental. Di GPU AMD, satu-dua efek mungkin tidak tergambar. "
+        "RAM/VRAM kecil: Pengaturan → Display → Internal resolution <b>720p</b>.\n"
+        "• MoltenVK: biarkan <b>MoltenVK crash fix</b> menyala (Pengaturan).\n"
+        "• <b>Crash saat mulai (\"address 0x20\")</b>: folder game tidak lengkap. Pastikan "
+        "<code>archives/loosefiles.pak</code> (~340 KB) ada; kalau tidak, salin ulang folder game.\n"
+        "• Game: CUSA13795 <b>v1.21</b> (update digabung ke game). Dump 1.21 untuk firmware 5.05 belum dites di Mac.\n"
+        "• Tidak ada file game di grup ini: pakai dump milik sendiri.\n"
+        "• Lapor bug: /bug — sertakan model Mac, versi macOS, dan log (Launcher → Log → Ekspor log).\n\n"
+        "🇬🇧\n"
+        "• <b>Apple Silicon Macs need macOS 15 or newer.</b> The game needs AVX, which Rosetta supports only from "
+        "macOS 15. macOS 13/14 cannot run it (\"this CPU lacks … AVX\"): update macOS, every M1 can.\n"
+        "• <b>macOS 26/27 recommended</b> (KosmicKrisp driver: faster, native fur). macOS 15 uses MoltenVK "
+        "(compatibility mode, may be slower).\n"
+        "• <b>macOS 28 removes Rosetta 2</b>: stay on macOS 27 or older to keep playing.\n"
+        "• <b>Intel Macs</b> (macOS 14+): experimental. On AMD GPUs one or two effects may not be drawn. "
+        "Low RAM/VRAM: Settings → Display → Internal resolution <b>720p</b>.\n"
+        "• MoltenVK: keep <b>MoltenVK crash fix</b> on (Settings).\n"
+        "• <b>Crash at start (\"address 0x20\")</b>: incomplete game folder. Check that "
+        "<code>archives/loosefiles.pak</code> (~340 KB) is there; if not, copy the game folder again.\n"
+        "• Game: CUSA13795 <b>v1.21</b> (update merged into the game). The 1.21 dump for firmware 5.05 is untested on Mac.\n"
+        "• No game files in this group: use your own dump.\n"
+        "• Report bugs: /bug — include Mac model, macOS version and the log (Launcher → Log → Export log)."
+    ),
 }
 COMMANDS = {"start": "help", "help": "help", "download": "download", "install": "install",
             "rosetta": "rosetta", "nickname": "nickname", "update": "update", "bug": "bug",
-            "rules": "rules", "credits": "credits", "faq": "help"}
+            "rules": "rules", "credits": "credits", "faq": "help",
+            "issues": "issues", "known": "issues"}
 GAME_FILE_REQUEST = re.compile(
     r"(minta|bagi|share|kirim|send|need|butuh|cari|link|download|unduh|where).{0,40}"
     r"\b(pkg|iso|rom|dump|game|eboot|firmware|cusa\d*|update ?1\.21)\b", re.I)
@@ -167,22 +201,22 @@ MUTED = {"can_send_messages": False, "can_send_audios": False, "can_send_documen
 FREE = {key: True for key in MUTED}
 
 
-def welcome(chat_id, user, pending):
+def welcome(chat_id, user):
     if user.get("is_bot"):
         return
     call("restrictChatMember", chat_id=chat_id, user_id=user["id"], permissions=MUTED,
          use_independent_chat_permissions=True)
     text = (f"👋 Selamat datang / Welcome, {mention(user)}!\n\n"
-            "Tekan tombol di bawah dalam 5 menit untuk mulai mengobrol. / Press the button below within "
-            "5 minutes to start chatting.\n\n" + RULES)
+            "Tekan tombol di bawah untuk mulai mengobrol. / Press the button below to start chatting.\n\n"
+            + RULES)
     markup = {"inline_keyboard": [[{"text": "✅ Saya bukan bot / I'm not a bot", "callback_data": f"verify:{user['id']}"}],
                                   [{"text": "⬇️ Download", "url": DMG_URL},
                                    {"text": "📄 README", "url": README_ID}]]}
-    message = send(chat_id, text, markup=markup)
-    pending[(chat_id, user["id"])] = (time.time() + VERIFY_SECONDS, message and message["message_id"])
+    send(chat_id, text, markup=markup)
+    print(f"Joined: {user['id']}, muted until verified")
 
 
-def verify(callback, pending):
+def verify(callback):
     data, user = callback.get("data", ""), callback["from"]
     message = callback.get("message") or {}
     chat_id = message.get("chat", {}).get("id")
@@ -194,24 +228,11 @@ def verify(callback, pending):
         return
     call("restrictChatMember", chat_id=chat_id, user_id=user["id"], permissions=FREE,
          use_independent_chat_permissions=True)
-    pending.pop((chat_id, user["id"]), None)
+    print(f"Verified: {user['id']}")
     call("answerCallbackQuery", callback_query_id=callback["id"], text="Terverifikasi! / Verified!")
     call("editMessageText", chat_id=chat_id, message_id=message["message_id"], parse_mode="HTML",
          disable_web_page_preview=True,
          text=f"👋 Selamat datang / Welcome, {mention(user)}! Ketik /help untuk panduan. / Type /help.\n\n{RULES}")
-
-
-def expire(pending):
-    now = time.time()
-    for (chat_id, user_id), (deadline, message_id) in list(pending.items()):
-        if now < deadline:
-            continue
-        pending.pop((chat_id, user_id))
-        # Removed, not banned: a short ban then unban lets them join again.
-        call("banChatMember", chat_id=chat_id, user_id=user_id, until_date=int(now) + 60)
-        call("unbanChatMember", chat_id=chat_id, user_id=user_id, only_if_banned=True)
-        if message_id:
-            call("deleteMessage", chat_id=chat_id, message_id=message_id)
 
 
 def latest_release():
@@ -251,9 +272,14 @@ def announce(state):
         save_state(state)
 
 
-def handle(update, state, pending):
+def handle(update, state):
     if "callback_query" in update:
-        verify(update["callback_query"], pending)
+        verify(update["callback_query"])
+        return
+    if "chat_join_request" in update:
+        request = update["chat_join_request"]
+        if call("approveChatJoinRequest", chat_id=request["chat"]["id"], user_id=request["from"]["id"]):
+            print(f"Join request approved: {request['from']['id']}")
         return
     message = update.get("message")
     if not message:
@@ -264,7 +290,7 @@ def handle(update, state, pending):
         save_state(state)
         print(f"Group: {chat.get('title')} ({chat['id']})")
     for user in message.get("new_chat_members") or []:
-        welcome(chat["id"], user, pending)
+        welcome(chat["id"], user)
     text = message.get("text") or message.get("caption") or ""
     if text.startswith("/"):
         command = text[1:].split()[0].split("@")[0].lower() if len(text) > 1 else ""
@@ -293,19 +319,19 @@ def main():
         {"command": "nickname", "description": "Tentang nickname"},
         {"command": "update", "description": "Cara update"},
         {"command": "bug", "description": "Lapor bug / Report a bug"},
+        {"command": "issues", "description": "Isu & batasan / Known issues"},
         {"command": "rules", "description": "Aturan grup / Rules"},
         {"command": "credits", "description": "Kredit / Credits"}])
-    state, pending, offset, next_release = load_state(), {}, None, 0.0
+    state, offset, next_release = load_state(), None, 0.0
     while True:
         updates = call("getUpdates", offset=offset, timeout=50,
-                       allowed_updates=["message", "callback_query"]) or []
+                       allowed_updates=["message", "callback_query", "chat_join_request"]) or []
         for update in updates:
             offset = update["update_id"] + 1
             try:
-                handle(update, state, pending)
+                handle(update, state)
             except Exception as error:  # one bad update must not stop the bot
                 print(f"update {update.get('update_id')}: {error!r}", file=sys.stderr)
-        expire(pending)
         if time.time() >= next_release:
             announce(state)
             next_release = time.time() + RELEASE_POLL
