@@ -54,6 +54,7 @@ RULES = (
 TEXTS = {
     "help": (
         "🏁 <b>CTR-Online on Mac</b> — port macOS tidak resmi dari OCTR / unofficial macOS port of OCTR\n\n"
+        "/faq — pertanyaan umum / frequently asked questions\n"
         "/download — unduh aplikasi / get the app\n"
         "/install — cara pasang / how to install\n"
         "/rosetta — tentang Rosetta 2 / about Rosetta 2\n"
@@ -147,11 +148,98 @@ TEXTS = {
 }
 COMMANDS = {"start": "help", "help": "help", "download": "download", "install": "install",
             "rosetta": "rosetta", "nickname": "nickname", "update": "update", "bug": "bug",
-            "rules": "rules", "credits": "credits", "faq": "help",
+            "rules": "rules", "credits": "credits",
             "issues": "issues", "known": "issues"}
 GAME_FILE_REQUEST = re.compile(
     r"(minta|bagi|share|kirim|send|need|butuh|cari|link|download|unduh|where).{0,40}"
     r"\b(pkg|iso|rom|dump|game|eboot|firmware|cusa\d*|update ?1\.21)\b", re.I)
+
+
+# /faq: a question per button; the answer replaces the list (with a button back). From what
+# players actually ran into (crash logs of 2026-10).
+FAQ = [
+    ("macos", "macOS 13/14 tidak bisa? / Not on macOS 13/14?",
+     "Mac Apple Silicon butuh <b>macOS 15 atau lebih baru</b>. Game butuh instruksi AVX, dan Rosetta 2 baru "
+     "mendukungnya mulai macOS 15 (log: \"this CPU lacks … AVX\"). Semua M1 bisa update ke macOS 15+.\n\n"
+     "Apple Silicon Macs need <b>macOS 15 or newer</b>: the game needs AVX, which Rosetta 2 supports only from "
+     "macOS 15. Every M1 can update."),
+    ("driver", "KosmicKrisp atau MoltenVK? / Which driver?",
+     "macOS 26/27: <b>Automatic</b> (= KosmicKrisp, disarankan: lebih cepat, bulu karakter asli). Pilih MoltenVK "
+     "hanya kalau grafis bermasalah. macOS 15 dan Mac Intel: hanya MoltenVK (otomatis).\n\n"
+     "macOS 26/27: keep <b>Automatic</b> (KosmicKrisp: faster, native fur); MoltenVK only if graphics break. "
+     "macOS 15 and Intel Macs: MoltenVK only (automatic)."),
+    ("start", "Crash saat mulai (address 0x20) / Crash at start",
+     "Folder game tidak lengkap: pastikan <code>archives/loosefiles.pak</code> (~340 KB) ada. Kalau tidak ada, "
+     "salin ulang folder game, atau ekstrak ulang game + update 1.21 lalu gabungkan.\n\n"
+     "Incomplete game folder: check that <code>archives/loosefiles.pak</code> (~340 KB) is there; if not, copy "
+     "the game folder again (or extract the game + 1.21 update again and merge them)."),
+    ("character", "Crash saat pilih karakter / Crash choosing a character",
+     "Di macOS 15: update ke <b>v1.3.5 atau lebih baru</b> (Pengaturan → Check for updates). Kalau masih crash, "
+     "pastikan <b>MoltenVK crash fix</b> menyala di Pengaturan, lalu kirim log (/bug).\n\n"
+     "On macOS 15: update to <b>v1.3.5 or newer</b>. Still crashing? Keep <b>MoltenVK crash fix</b> on in "
+     "Settings and send the log (/bug)."),
+    ("closes", "Game tertutup sendiri / Game closes by itself",
+     "1. Update ke versi terbaru. 2. MoltenVK: biarkan <b>MoltenVK crash fix</b> menyala. 3. Mac Intel dengan GPU "
+     "AMD: v1.3.6+ melewati shader yang ditolak driver. 4. RAM 8 GB atau Mac Intel: Internal resolution "
+     "<b>720p</b>. Masih terjadi? Kirim log (/bug).\n\n"
+     "1. Update. 2. MoltenVK: keep <b>MoltenVK crash fix</b> on. 3. Intel Mac with AMD GPU: v1.3.6+ skips "
+     "shaders the driver rejects. 4. 8 GB RAM or Intel Mac: Internal resolution <b>720p</b>. Still? Send the log."),
+    ("slow", "Lambat / patah-patah? / Slow or stuttering?",
+     "Pertama kali main, shader disiapkan (~2 menit, sekali saja). Mac RAM 8 GB, macOS 15 atau Intel: "
+     "Pengaturan → Display → Internal resolution <b>720p</b>. macOS 26/27 + KosmicKrisp paling cepat.\n\n"
+     "The first start prepares shaders (~2 min, once). 8 GB RAM, macOS 15 or Intel: Settings → Display → "
+     "Internal resolution <b>720p</b>. macOS 26/27 with KosmicKrisp is the fastest."),
+    ("patches", "Patch 60 FPS tidak jalan? / 60 FPS patch not applied?",
+     "Patch dibuat untuk CUSA13795 <b>v1.21</b>. Di log, \"patch site … not found\" berarti eboot.bin berbeda: "
+     "pastikan update 1.21 sudah digabung ke folder game (eboot.bin juga diganti).\n\n"
+     "Patches are made for CUSA13795 <b>v1.21</b>. \"patch site … not found\" in the log means another "
+     "eboot.bin: make sure the 1.21 update is merged into the game folder (eboot.bin replaced too)."),
+    ("update", "Cara update / How to update",
+     "Pengaturan → <b>Check for updates</b>, atau tombol Update di banner. Save dan pengaturan tetap aman.\n\n"
+     "Settings → <b>Check for updates</b>, or the Update banner. Saves and settings are kept."),
+    ("online", "Main online & nickname / Online & nickname",
+     "Online memakai server RyuNET milik OCTR. Nickname 3–16 huruf/angka/_/-; instalasi pertama yang memakainya "
+     "online yang memilikinya (bisa dihubungkan ke Discord di Pengaturan → Online).\n\n"
+     "Online uses OCTR's RyuNET server. Nicknames: 3–16 letters/digits/_/-; the first installation to use one "
+     "online keeps it (link it to Discord in Settings → Online)."),
+    ("files", "Minta file game? / Game files?",
+     "Tidak ada file game di grup ini. Pakai dump milik sendiri (CUSA13795 + update 1.21).\n\n"
+     "No game files here: use your own dump (CUSA13795 + 1.21 update)."),
+    ("macos28", "macOS 28?", 
+     "macOS 28 menghapus Rosetta 2, jadi game tidak akan jalan. Tetap di macOS 27 atau lebih lama.\n\n"
+     "macOS 28 removes Rosetta 2, so the game will not run: stay on macOS 27 or older."),
+    ("bug", "Lapor bug / Report a bug",
+     f"<a href=\"{ISSUES}\">GitHub Issues</a> atau grup ini. Sertakan model Mac, versi macOS, langkah, dan log "
+     "(Launcher → Log → Ekspor log). Video membantu.\n\n"
+     "GitHub Issues or this group: include Mac model, macOS version, steps and the log (Launcher → Log → "
+     "Export log). A video helps."),
+]
+FAQ_BY_KEY = {key: (question, answer) for key, question, answer in FAQ}
+FAQ_TITLE = "❓ <b>FAQ</b> — pilih pertanyaan / choose a question:"
+
+
+def faq_menu():
+    return {"inline_keyboard": [[{"text": question, "callback_data": f"faq:{key}"}] for key, question, _ in FAQ]}
+
+
+def faq_answer(callback):
+    """A /faq button: the list becomes that answer, with a button back (and back to the list)."""
+    key = callback["data"].split(":", 1)[1]
+    message = callback.get("message") or {}
+    chat_id, message_id = message.get("chat", {}).get("id"), message.get("message_id")
+    call("answerCallbackQuery", callback_query_id=callback["id"])
+    if chat_id is None:
+        return
+    if key == "menu":
+        text, markup = FAQ_TITLE, faq_menu()
+    elif key in FAQ_BY_KEY:
+        question, answer = FAQ_BY_KEY[key]
+        text = f"❓ <b>{question}</b>\n\n{answer}"
+        markup = {"inline_keyboard": [[{"text": "⬅️ FAQ", "callback_data": "faq:menu"}]]}
+    else:
+        return
+    call("editMessageText", chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML",
+         disable_web_page_preview=True, reply_markup=markup)
 
 
 def call(method, **params):
@@ -250,7 +338,10 @@ def announce(state):
 
 def handle(update, state):
     if "callback_query" in update:
-        verify(update["callback_query"])
+        if update["callback_query"].get("data", "").startswith("faq:"):
+            faq_answer(update["callback_query"])
+        else:
+            verify(update["callback_query"])
         return
     if "chat_join_request" in update:
         request = update["chat_join_request"]
@@ -268,7 +359,9 @@ def handle(update, state):
     text = message.get("text") or message.get("caption") or ""
     if text.startswith("/"):
         command = text[1:].split()[0].split("@")[0].lower() if len(text) > 1 else ""
-        if command in COMMANDS:
+        if command in ("faq", "tanya"):
+            send(chat["id"], FAQ_TITLE, reply_to=message["message_id"], markup=faq_menu())
+        elif command in COMMANDS:
             key = COMMANDS[command]
             send(chat["id"], RULES if key == "rules" else TEXTS[key], reply_to=message["message_id"])
         return
@@ -286,6 +379,7 @@ def main():
         sys.exit("The token was refused by Telegram.")
     print(f"Running as @{me['username']}")
     call("setMyCommands", commands=[
+        {"command": "faq", "description": "Pertanyaan umum / FAQ"},
         {"command": "help", "description": "Panduan / Help"},
         {"command": "download", "description": "Unduh aplikasi / Download"},
         {"command": "install", "description": "Cara pasang / Install"},
