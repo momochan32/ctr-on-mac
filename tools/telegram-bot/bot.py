@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """CTR-Online on Mac community bot for the Telegram group (Python standard library only).
 
-- Welcomes new members (Indonesian + English) with the download, the README and the rules.
-- Join requests are approved at once (no waiting for an admin).
-- Anti-spam check: a new member is muted until they press "I'm not a bot"; nobody is removed
-  (members approved while away used to be removed before they saw the button).
+- Join requests are approved at once (no waiting for an admin). New members get no welcome
+  message and no check: a mute-until-verified check with removals emptied the group in 2026-10.
 - Commands: /start /help /download /install /rosetta /nickname /update /bug /rules /credits.
 - Announces new GitHub releases of the repository (checked every RELEASE_POLL seconds).
 - Replies with the rules when someone asks for game files (no link to any game file is ever given).
@@ -194,45 +192,23 @@ def mention(user):
     return f"<a href=\"tg://user?id={user['id']}\">{name}</a>"
 
 
-MUTED = {"can_send_messages": False, "can_send_audios": False, "can_send_documents": False,
-         "can_send_photos": False, "can_send_videos": False, "can_send_video_notes": False,
-         "can_send_voice_notes": False, "can_send_polls": False, "can_send_other_messages": False,
-         "can_add_web_page_previews": False}
-FREE = {key: True for key in MUTED}
-
-
-def welcome(chat_id, user):
-    if user.get("is_bot"):
-        return
-    call("restrictChatMember", chat_id=chat_id, user_id=user["id"], permissions=MUTED,
-         use_independent_chat_permissions=True)
-    text = (f"👋 Selamat datang / Welcome, {mention(user)}!\n\n"
-            "Tekan tombol di bawah untuk mulai mengobrol. / Press the button below to start chatting.\n\n"
-            + RULES)
-    markup = {"inline_keyboard": [[{"text": "✅ Saya bukan bot / I'm not a bot", "callback_data": f"verify:{user['id']}"}],
-                                  [{"text": "⬇️ Download", "url": DMG_URL},
-                                   {"text": "📄 README", "url": README_ID}]]}
-    send(chat_id, text, markup=markup)
-    print(f"Joined: {user['id']}, muted until verified")
+FREE = {"can_send_messages": True, "can_send_audios": True, "can_send_documents": True,
+        "can_send_photos": True, "can_send_videos": True, "can_send_video_notes": True,
+        "can_send_voice_notes": True, "can_send_polls": True, "can_send_other_messages": True,
+        "can_add_web_page_previews": True}
 
 
 def verify(callback):
+    """A button of the former welcome message: lets that member chat and drops the button."""
     data, user = callback.get("data", ""), callback["from"]
     message = callback.get("message") or {}
     chat_id = message.get("chat", {}).get("id")
     if not data.startswith("verify:") or chat_id is None:
         return
-    if str(user["id"]) != data.split(":", 1)[1]:
-        call("answerCallbackQuery", callback_query_id=callback["id"],
-             text="Tombol ini untuk anggota baru tersebut. / This button is for that new member.", show_alert=True)
-        return
     call("restrictChatMember", chat_id=chat_id, user_id=user["id"], permissions=FREE,
          use_independent_chat_permissions=True)
-    print(f"Verified: {user['id']}")
-    call("answerCallbackQuery", callback_query_id=callback["id"], text="Terverifikasi! / Verified!")
-    call("editMessageText", chat_id=chat_id, message_id=message["message_id"], parse_mode="HTML",
-         disable_web_page_preview=True,
-         text=f"👋 Selamat datang / Welcome, {mention(user)}! Ketik /help untuk panduan. / Type /help.\n\n{RULES}")
+    call("answerCallbackQuery", callback_query_id=callback["id"], text="OK")
+    call("deleteMessage", chat_id=chat_id, message_id=message["message_id"])
 
 
 def latest_release():
@@ -289,8 +265,6 @@ def handle(update, state):
         state["group"] = chat["id"]
         save_state(state)
         print(f"Group: {chat.get('title')} ({chat['id']})")
-    for user in message.get("new_chat_members") or []:
-        welcome(chat["id"], user)
     text = message.get("text") or message.get("caption") or ""
     if text.startswith("/"):
         command = text[1:].split()[0].split("@")[0].lower() if len(text) > 1 else ""
