@@ -189,6 +189,27 @@ FAQ = [
      "Pengaturan → Display → Internal resolution <b>720p</b>. macOS 26/27 + KosmicKrisp paling cepat.\n\n"
      "The first start prepares shaders (~2 min, once). 8 GB RAM, macOS 15 or Intel: Settings → Display → "
      "Internal resolution <b>720p</b>. macOS 26/27 with KosmicKrisp is the fastest."),
+    ("fps30", "Batas 30 FPS & PS4 Pro? / 30 FPS limit & PS4 Pro?",
+     "Pengaturan → Performance → <b>Batas FPS</b>: pilih <b>30</b> (paling stabil di Mac ringan, juga bisa dari "
+     "menu dalam game: Insert atau L3+R3). Resolusi 480p/720p memakai jalur PS4 Pro, jadi sakelar "
+     "<b>PS4 Pro mode</b> otomatis terkunci; mematikan Pro (resolusi default) justru lebih berat.\n\n"
+     "Settings → Performance → <b>FPS limit</b>: choose <b>30</b> (steadiest on lighter Macs; also in the "
+     "in-game menu: Insert or L3+R3). 480p/720p use the PS4 Pro path, so the <b>PS4 Pro mode</b> switch is "
+     "locked; turning Pro off (game default resolution) is heavier, not lighter."),
+    ("neo", "MacBook Neo / Mac RAM 8 GB?",
+     "MacBook Neo butuh <b>v1.3.8+</b> (sebelumnya crash di frame pertama). Setelan terbaik: Internal "
+     "resolution <b>480p</b> + Batas FPS <b>30</b>. Jangan pakai 60/90 FPS: memori GPU-nya kecil, "
+     "game jadi patah-patah dan input terasa lag.\n\n"
+     "MacBook Neo needs <b>v1.3.8+</b> (it crashed at the first frame before). Best settings: Internal "
+     "resolution <b>480p</b> + FPS limit <b>30</b>. Avoid 60/90 FPS: its GPU memory is small, so the "
+     "game stutters and input feels laggy."),
+    ("discord", "Recover progress lewat Discord? / Discord recover?",
+     "Di Mac, tombol <b>Link/Recover with Discord</b> dan link lain di launcher tidak membuka browser "
+     "sampai versi 1.3.8. Perbaikannya ada di update berikutnya; setelah update, tekan tombolnya, izinkan "
+     "di halaman Discord, lalu progress kembali.\n\n"
+     "On Mac, the <b>Link/Recover with Discord</b> button and other launcher links don't open the browser "
+     "up to v1.3.8. The fix comes in the next update; then press the button, authorize on Discord's page, "
+     "and your progress comes back."),
     ("patches", "Patch 60 FPS tidak jalan? / 60 FPS patch not applied?",
      "Patch dibuat untuk CUSA13795 <b>v1.21</b>. Di log, \"patch site … not found\" berarti eboot.bin berbeda: "
      "pastikan update 1.21 sudah digabung ke folder game (eboot.bin juga diganti).\n\n"
