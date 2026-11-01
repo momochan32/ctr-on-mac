@@ -205,10 +205,10 @@ FAQ = [
      "game stutters and input feels laggy."),
     ("discord", "Recover progress lewat Discord? / Discord recover?",
      "Di Mac, tombol <b>Link/Recover with Discord</b> dan link lain di launcher tidak membuka browser "
-     "sampai versi 1.3.8. Perbaikannya ada di update berikutnya; setelah update, tekan tombolnya, izinkan "
+     "sampai versi 1.3.8. Sudah diperbaiki di <b>v1.3.9</b>: update, tekan tombolnya, izinkan "
      "di halaman Discord, lalu progress kembali.\n\n"
      "On Mac, the <b>Link/Recover with Discord</b> button and other launcher links don't open the browser "
-     "up to v1.3.8. The fix comes in the next update; then press the button, authorize on Discord's page, "
+     "up to v1.3.8. Fixed in <b>v1.3.9</b>: update, press the button, authorize on Discord's page, "
      "and your progress comes back."),
     ("patches", "Patch 60 FPS tidak jalan? / 60 FPS patch not applied?",
      "Patch dibuat untuk CUSA13795 <b>v1.21</b>. Di log, \"patch site … not found\" berarti eboot.bin berbeda: "
