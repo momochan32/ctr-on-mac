@@ -1013,6 +1013,14 @@ def open_external(target):
     """Opens a web address or a folder with the player's own browser or file manager: the system's
     xdg-open (or gio, kde-open) with host_environment(); GIO as a last resort. True when one of
     them started (whether the page opened is up to the desktop)."""
+    if MACOS:
+        # macOS: no xdg-open, and GIO's default-app launch does nothing in the app bundle.
+        try:
+            return subprocess.run(["/usr/bin/open", str(target)], stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=10).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
     env = host_environment()
     for command in (["xdg-open"], ["gio", "open"], ["kde-open"], ["exo-open"]):
         for folder in env["PATH"].split(":"):
@@ -1030,6 +1038,17 @@ def open_external(target):
         return Gio.AppInfo.launch_default_for_uri(uri, None)
     except GLib.Error:
         return False
+
+
+def copy_text(widget, text):
+    """Puts text on the clipboard; on macOS through pbcopy, which the system clipboard always gets."""
+    if MACOS:
+        try:
+            subprocess.run(["/usr/bin/pbcopy"], input=text.encode(), timeout=5, check=True)
+            return
+        except (OSError, subprocess.SubprocessError):
+            pass
+    widget.get_clipboard().set(text)
 
 
 def open_folder(window, path):
@@ -3103,7 +3122,7 @@ class LauncherWindow(Adw.ApplicationWindow):
                 toast = Adw.Toast(title=tr("Discord's authorization page opened in your browser") if opened
                                   else tr("Could not open your browser: copy the link and open it there"),
                                   button_label=tr("Copy link"), timeout=0 if not opened else 30)
-                toast.connect("button-clicked", lambda _t: self.get_clipboard().set(url))
+                toast.connect("button-clicked", lambda _t: copy_text(self, url))
                 self.toasts.add_toast(toast)
                 return False
             GLib.idle_add(show)
@@ -3329,7 +3348,7 @@ class LauncherWindow(Adw.ApplicationWindow):
                 timeout=10))
 
     def on_copy_log(self, _button):
-        self.get_clipboard().set(self.log_text())
+        copy_text(self, self.log_text())
         self.toasts.add_toast(Adw.Toast(title=tr("Log copied to the clipboard")))
 
     def on_export_log(self, _button):
