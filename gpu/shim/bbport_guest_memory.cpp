@@ -17,6 +17,7 @@ const Chunk* Find(std::uint64_t) { return nullptr; }
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <string>
 #include <sys/mman.h>
 #include <unistd.h>
 #include "video_core/renderer_vulkan/vk_instance.h"
@@ -354,6 +355,16 @@ void Install(const Vulkan::Instance& instance) {
     if (!(env && env[0] == '1') && !(in_place && in_place[0] == '1' && PcModelGpu(instance))) {
         return;
     }
+#ifdef __APPLE__
+    // MacBook Neo (Apple A-series GPU, 8 GB): its GPU budget (~5.3 GB) is smaller than the
+    // game's direct memory, so importing it all loses the device at the first present. Only
+    // A-series GPUs skip the import; Apple M-series and other GPUs are unchanged.
+    if (instance.GetModelName().starts_with("Apple A")) {
+        std::printf("Guest memory: direct memory stays in shared memory on %s (small GPU budget)\n",
+                    std::string(instance.GetModelName()).c_str());
+        return;
+    }
+#endif
     if (!Usable(instance)) {
         std::printf("Guest memory: direct memory stays in the memfd\n");
         return;
