@@ -583,7 +583,13 @@ bool Instance::CreateDevice() {
     // The native renderer (BB_VK_NATIVE_ONLY) has no buffer cache: no sparse buffers at all.
     if (const auto base = physical_device.getFeatures(); BbMem::NativeOnly()) {
     } else if (!base.sparseBinding) {
+#ifdef __APPLE__
+        // SacredFire (macOS): MoltenVK has no sparse binding; the buffer cache uses dense arenas
+        // there (buffer_cache.h), as macOS 15 and Intel Macs always have.
+        LOG_INFO(Render_Vulkan, "No sparse binding: dense buffer arenas");
+#else
         StopUnsupportedFeature(properties.deviceName.data(), "sparse buffers (sparseBinding)");
+#endif
     } else {
         const bool queue_sparse = bool(family_properties[queue_family_index].queueFlags &
                                        vk::QueueFlagBits::eSparseBinding);
