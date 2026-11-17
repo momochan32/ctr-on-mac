@@ -124,8 +124,21 @@ else()
         unset(CMAKE_POLICY_VERSION_MINIMUM)
         add_library(miniz::miniz ALIAS miniz)
     endif()
+endif()
+if(NOT APPLE)
+# Zydis: on Windows built in from its single-file release (third_party/zydis-amalgamated): MSYS2
+# has it only as libzydis.dll, which antivirus heuristics flagged (a disassembler DLL next to a
+# game reads as a cheat tool). Elsewhere the system's.
+if(WIN32)
+    add_library(zydis_builtin STATIC third_party/zydis-amalgamated/src/Zydis.c)
+    target_include_directories(zydis_builtin PUBLIC third_party/zydis-amalgamated/include
+                               PRIVATE third_party/zydis-amalgamated/include/Zydis)
+    target_compile_definitions(zydis_builtin PUBLIC ZYDIS_STATIC_BUILD ZYCORE_STATIC_BUILD)
+    add_library(Zydis::Zydis ALIAS zydis_builtin)
+else()
     find_package(Zydis REQUIRED)
-    find_program(GLSLANG_COMPILER NAMES glslang glslangValidator REQUIRED)
+endif()
+find_program(GLSLANG_COMPILER NAMES glslang glslangValidator REQUIRED)
 endif()
 
 set(SIRIT_USE_SYSTEM_SPIRV_HEADERS OFF CACHE BOOL "" FORCE)
@@ -180,6 +193,7 @@ add_host_shader(taa_sharpen.comp taa_sharpen_comp)
 add_host_shader(taa_sharpen.comp taa_sharpen_ldr_comp LDR_OUTPUT=1)
 add_host_shader(fsr4_color.comp fsr4_decode_comp)
 add_host_shader(fsr4_color.comp fsr4_encode_comp ENCODE=1)
+add_host_shader(ctr_fsr4_pack.comp ctr_fsr4_pack_comp)
 add_host_shader(fsr4_reactive.comp fsr4_reactive_comp)
 add_host_shader(ctr_fsr3_inputs.comp ctr_fsr3_inputs_comp)
 add_host_shader(ctr_fsr3_inputs.comp ctr_fsr3_inputs_d_comp DEPTH_MSAA=1)
@@ -189,6 +203,10 @@ add_host_shader(buffer_multi_copy.comp buffer_multi_copy_comp)
 add_host_shader(depth_resample.frag depth_resample_frag)
 add_host_shader(depth_resample.frag depth_stencil_resample_frag HAS_STENCIL=1)
 add_host_shader(depth_resample.frag depth_stencil_bits_frag STENCIL_BITS=1)
+add_host_shader(depth_resample.frag depth_ms_resample_frag MSAA=1)
+add_host_shader(depth_resample.frag depth_stencil_ms_resample_frag MSAA=1 HAS_STENCIL=1)
+add_host_shader(depth_resample.frag depth_stencil_ms_bits_frag MSAA=1 STENCIL_BITS=1)
+add_host_shader(ms_image_blit.frag ms_resample_frag SRC_MSAA=1 RESAMPLE=1)
 add_host_shader(camera_motion.comp camera_motion_debug_comp DEBUG_OVERLAY=1)
 foreach(BPP IN ITEMS 8 16 32 64 96 128)
     add_host_shader(tiling.comp tiling_micro_${BPP}_comp BITS_PER_PIXEL=${BPP} IS_MACRO_TILED=0)
@@ -210,6 +228,10 @@ if (NOT APPLE)
     pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavformat libavcodec libavutil libswscale libswresample)
 endif()
 file(GLOB SHIM_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*/*.cpp)
+if (NOT WIN32)
+    # The Direct3D 11 engine is Windows only; elsewhere shim/bbport_d3d11.cpp builds empty stubs.
+    list(FILTER SHIM_SOURCES EXCLUDE REGEX "/shim/d3d11/")
+endif()
 # Windows: a DLL cannot leave the runtime_* symbols for bb-probe.exe to resolve, so the
 # library is static there and linked into the executable.
 if (WIN32 OR APPLE)
@@ -228,6 +250,10 @@ add_dependencies(bbgpu host_shaders)
 target_sources(bbgpu PRIVATE third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp
     third_party/imgui/imgui_tables.cpp third_party/imgui/imgui_widgets.cpp
     third_party/imgui/backends/imgui_impl_vulkan.cpp)
+if (WIN32)
+    # The experimental Direct3D 11 engine's menu (shim/bbport_d3d11.cpp).
+    target_sources(bbgpu PRIVATE third_party/imgui/backends/imgui_impl_dx11.cpp)
+endif()
 target_include_directories(bbgpu PRIVATE third_party/imgui third_party/imgui/backends)
 # Dear ImGui stays private to libbbgpu.so. The library is linked into bb-probe, so its exports are
 # in the global symbol scope; a Vulkan layer carrying its own Dear ImGui without -Bsymbolic
@@ -311,6 +337,11 @@ if (WIN32)
     add_executable(sacredfire ../src/probe.c ${BB_RUNTIME} ../src/compat_win.c ../src/cpu_check.c ../src/vulkan_smoke.c
         ../src/isa_rewrite.c ../src/isa_emulate.c
         ../packaging/windows/sacredfire.rc)
+    if (NOT SACREDFIRE_RELEASE)
+        execute_process(COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/build_version.py
+            OUTPUT_VARIABLE SACREDFIRE_RELEASE OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    endif()
+    target_compile_definitions(sacredfire PRIVATE SACREDFIRE_RELEASE="${SACREDFIRE_RELEASE}")
     set_target_properties(sacredfire PROPERTIES C_STANDARD 11 C_EXTENSIONS OFF)
     # isa_emulate runs inside guest code: no XMM/YMM.
     set_source_files_properties(../src/isa_emulate.c PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
@@ -318,7 +349,9 @@ if (WIN32)
     target_compile_options(sacredfire PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra -Werror
         -Wno-unknown-warning-option -Wno-unused-but-set-global>)
     target_include_directories(sacredfire PRIVATE .. ../src)
-    target_link_libraries(sacredfire PRIVATE bbgpu atrac9 onecore bcrypt ws2_32 -pthread)
+    # liblzma (MSYS2 mingw-w64-clang-x86_64-xz), static: the archive decoder (src/runtime_lzma.c)
+    find_library(BB_LIBLZMA NAMES liblzma.a REQUIRED)
+    target_link_libraries(sacredfire PRIVATE bbgpu atrac9 ${BB_LIBLZMA} onecore bcrypt ws2_32 d3d11 dxgi d3dcompiler -pthread)
     # The PS4 range (64 GiB - 1 TiB) must stay free: no high-entropy ASLR for heaps and stacks.
     # The guest main thread runs on the process stack: 16 MiB, committed (no stack probes).
     target_link_options(sacredfire PRIVATE -Wl,--disable-high-entropy-va "SHELL:-Xlinker --stack -Xlinker 16777216,16777216")
@@ -372,7 +405,48 @@ if (WIN32)
 endif()
 
 # Explicit test targets; neither launches the game nor needs a Vulkan device.
+add_executable(flip-timing-test EXCLUDE_FROM_ALL ../tests/test_flip_timing.cpp)
+target_compile_options(flip-timing-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(flip-timing-test PRIVATE ..)
 add_executable(motion-history-test EXCLUDE_FROM_ALL ../tests/test_motion_history.cpp)
+if (NOT WIN32)
+    add_executable(native-texture-batch-test EXCLUDE_FROM_ALL
+        ../tests/test_native_texture_batch.cpp ../tests/test_gpu_runtime_stubs.cpp)
+    target_include_directories(native-texture-batch-test PRIVATE shim shadps4 third_party/gcn/include)
+    target_compile_options(native-texture-batch-test PRIVATE -UNDEBUG -fPIC)
+    set_source_files_properties(../tests/test_native_texture_batch.cpp PROPERTIES
+        COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
+    target_link_libraries(native-texture-batch-test PRIVATE bbgpu)
+    add_executable(native-live-graphics-test EXCLUDE_FROM_ALL
+        ../tests/test_native_live_graphics.cpp ../tests/test_gpu_runtime_stubs.cpp)
+    target_include_directories(native-live-graphics-test PRIVATE shim shadps4 third_party/gcn/include)
+    target_compile_options(native-live-graphics-test PRIVATE -UNDEBUG -fPIC)
+    set_source_files_properties(../tests/test_native_live_graphics.cpp PROPERTIES
+        COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
+    target_link_libraries(native-live-graphics-test PRIVATE bbgpu)
+    set(BLUR_TEST_VERTEX ${CMAKE_CURRENT_BINARY_DIR}/motion-blur-test.vert.spv)
+    add_custom_command(OUTPUT ${BLUR_TEST_VERTEX}
+        COMMAND ${GLSLANG_COMPILER} --target-env vulkan1.3 -V
+                ${CMAKE_CURRENT_SOURCE_DIR}/../tests/test_motion_blur.vert -o ${BLUR_TEST_VERTEX}
+        DEPENDS ../tests/test_motion_blur.vert VERBATIM)
+    add_custom_target(motion-blur-test-shader DEPENDS ${BLUR_TEST_VERTEX})
+    add_dependencies(native-live-graphics-test motion-blur-test-shader)
+    target_compile_definitions(native-live-graphics-test PRIVATE BLUR_TEST_VERTEX="${BLUR_TEST_VERTEX}")
+    add_executable(native-shader-async-test EXCLUDE_FROM_ALL
+        ../tests/test_native_shader_async.cpp ../tests/test_gpu_runtime_stubs.cpp)
+    target_include_directories(native-shader-async-test PRIVATE shim shadps4 third_party/gcn/include)
+    target_compile_options(native-shader-async-test PRIVATE -UNDEBUG -fPIC)
+    set_source_files_properties(../tests/test_native_shader_async.cpp PROPERTIES
+        COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
+    target_link_libraries(native-shader-async-test PRIVATE bbgpu)
+    add_executable(pipeline-cache-io-test EXCLUDE_FROM_ALL
+        ../tests/test_pipeline_cache_io.cpp ../tests/test_gpu_runtime_stubs.cpp)
+    target_include_directories(pipeline-cache-io-test PRIVATE shim shadps4 third_party/gcn/include)
+    target_compile_options(pipeline-cache-io-test PRIVATE -UNDEBUG -fPIC)
+    set_source_files_properties(../tests/test_pipeline_cache_io.cpp PROPERTIES
+        COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
+    target_link_libraries(pipeline-cache-io-test PRIVATE bbgpu)
+endif()
 target_compile_options(motion-history-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(motion-history-test PRIVATE ..)
 add_executable(motion-shader-test EXCLUDE_FROM_ALL ../tests/test_motion_shaders.cpp ../tests/test_gpu_runtime_stubs.cpp)
@@ -384,6 +458,10 @@ target_include_directories(ui-composition-test PRIVATE ..)
 add_executable(settings-test EXCLUDE_FROM_ALL ../tests/test_settings.cpp shim/bbport_settings.cpp)
 target_compile_options(settings-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(settings-test PRIVATE .. shim)
+add_executable(aspect-settings-test EXCLUDE_FROM_ALL ../tests/test_aspect_settings.cpp
+    shim/bbport_settings.cpp shim/bbport_menu_es.cpp)
+target_compile_options(aspect-settings-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(aspect-settings-test PRIVATE .. shim)
 
 add_executable(scene-resolution-test EXCLUDE_FROM_ALL ../tests/test_scene_resolution.cpp ../tests/test_gpu_runtime_stubs.cpp)
 target_include_directories(scene-resolution-test PRIVATE shim shadps4 third_party/gcn/include)

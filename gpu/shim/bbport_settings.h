@@ -65,6 +65,11 @@ inline constexpr int GamePatchCount = int(sizeof(GamePatches) / sizeof(GamePatch
 /// 1080p; scripts/patches.py and run.py apply it at start, docs/sacredfire/13-resolution.md).
 inline constexpr int RenderResHeights[] = {480, 720, 1080, 1440, 1620, 2160};
 inline constexpr int RenderResCount = 6;
+inline constexpr int FpsLimits[] = {0, 30, 60, 72, 90, 120, 144, 240};
+/// Display shape (aspect_ratio); the corrected wide modes also accept the older widescreen keys.
+enum AspectRatio : int { Aspect16x9 = 0, Aspect16x10, Aspect21x9, Aspect32x9, AspectRatioCount };
+inline constexpr const char* AspectRatioKeys[] = {"16x9", "16x10", "21x9", "32x9"};
+inline constexpr const char* AspectRatioNames[] = {"16:9", "16:10", "21:9", "32:9"};
 /// Live output resolutions: the upscaler's output and the UI host targets.
 inline constexpr int OutputWidths[] = {1280, 1920, 2560, 3840};
 inline constexpr int OutputHeights[] = {720, 1080, 1440, 2160};
@@ -74,12 +79,15 @@ inline constexpr int OutputDefault = 1; ///< 1920x1080, the game's own size
 /// SacredFire: controller ports for split screen (bbport.ini port.1..4: SDL GUID or part of the
 /// gamepad name; the runtime re-reads the file when the menu saves it).
 constexpr int ControllerPorts = 4;
-/// SacredFire: the upscaler (bbport.ini temporal=off|fsr1|fsr3|dlss): FSR 1 (spatial, the
+/// SacredFire: the upscaler (bbport.ini temporal=off|fsr1|fsr3|dlss|fsr4): FSR 1 (spatial, the
 /// display pass's stretch) or temporal upscaling/AA of the finished frame (vk_ctr_fsr3; FSR 3
-/// where DLSS cannot run).
+/// where DLSS or FSR 4 cannot run).
 enum Temporal : int { TemporalOff = 0, TemporalFsr1 = 1, TemporalFsr3 = 2, TemporalDlss = 3,
-                      TemporalCount = 4 };
-inline constexpr const char* TemporalNames[TemporalCount] = {"off", "fsr1", "fsr3", "dlss"};
+                      TemporalFsr4 = 4, TemporalCount = 5 };
+inline constexpr const char* TemporalNames[TemporalCount] = {"off", "fsr1", "fsr3", "dlss", "fsr4"};
+/// v0.7.4: FSR 4 (temporal=fsr4) is offered only when its model files are there (fsr4_shaders
+/// next to the package, or BB_FSR4_DIR) and the GPU has INT8 dot products.
+bool Fsr4Available();
 /// bbport.ini dlss_quality: auto (render_res decides the render size) or one of NVIDIA's modes,
 /// which set the render size from dlss_output (scripts/patches.py render_plan; at start).
 inline constexpr const char* DlssQualityNames[] = {"auto", "dlaa", "quality", "balanced",
@@ -114,21 +122,40 @@ struct Values {
     std::atomic<bool> friends_hide_activity{false};
     std::atomic<bool> friends_hide_me{false};
     std::atomic<bool> friends_no_notices{false};
+    /// Spectator build: share my races with my friends (src/runtime_spectate.c).
+    std::atomic<bool> spectate_share{true};
+    /// The text chat of a private room (src/runtime_chat.c).
+    std::atomic<bool> chat_enabled{true};
+    /// Also in public lobbies, with strangers: a choice of its own.
+    std::atomic<bool> chat_public{true};
+    /// The room chat during the races too (a smaller box then); off, it waits for the end of the race.
+    std::atomic<bool> chat_in_race{true};
     std::atomic<int> notice_position{NoticeTopRight};
     /// SacredFire: frames per second the present thread lets through (0: no limit). The 60 FPS
     /// patch lets the game run as fast as the machine goes; 60 is the pace it was made for.
     /// Applies at once. BB_FPS_LIMIT overrides it.
     std::atomic<int> fps_limit{60};
+    /// Native renderer supports live scene targets, pacing and motion-blur variants.
+    std::atomic<bool> native_live_graphics{false};
+    std::atomic<bool> shad_live_graphics{false};
+    bool LiveGraphics() const { return native_live_graphics || shad_live_graphics; }
+    std::atomic<bool> native_resolution_requested{false};
+    std::atomic<int> native_scene_height{0};
     /// SacredFire: graphics pipelines compiled on worker threads (BB_ASYNC_PIPELINES): a new
     /// shader no longer stops the game; a pass drawn every frame may miss a frame or two.
     /// Experimental (STATUS.md, issue #2). Applies at once. BB_ASYNC_PIPELINES overrides it.
     std::atomic<bool> async_pipelines{false};
-    /// SacredFire: the game's 2x MSAA (G-buffer and forward passes). Off by default: on the host
-    /// GPU, single-sample colour drawn over the 2x depth buffer blends twice along triangle edges
-    /// (dotted lines in skies and light shafts, GitHub issues #16/#18), and at the internal
-    /// resolutions this port offers MSAA adds little. Read once at start (restart to apply);
+    /// SacredFire: the game's 2x MSAA (G-buffer and forward passes; foliage's alpha edges need
+    /// it). The dotted lines single-sample colour over the 2x depth buffer drew on NVIDIA (GitHub
+    /// issues #16/#18) are fixed by truncating coverage in mixed-sample pipelines
+    /// (vk_graphics_pipeline.cpp, VK_NV_coverage_reduction_mode; AMD has
+    /// VK_AMD_mixed_attachment_samples). Still off by default (v0.7): it costs frames on weak GPUs
+    /// and GPUs with neither extension (Intel) would draw the lines again. Read once at start;
     /// BB_NO_MSAA=1/0 overrides it. AmdGpu::BbNoMsaa() is the switch the renderer reads.
     std::atomic<bool> msaa{false};
+    /// The game's Options menu gets a "Graphics" tab (the hidden Language Select tab, relabelled
+    /// by scripts/graphics_tab.py) with the port's settings. Read once at start.
+    std::atomic<bool> graphics_tab{true};
     /// SacredFire: exclusive fullscreen on the game's display (BB_DISPLAY). Applies at once;
     /// BB_FULLSCREEN=1 at start. Saved to bbport.ini by the menu.
     std::atomic<bool> fullscreen{false};
@@ -136,6 +163,9 @@ struct Values {
     /// SacredFire: the game's volume in percent, 0..200 (bbport.ini volume, the launcher's and
     /// the menu's slider). Applies at once (runtime_audio.c, bbgpu_audio_volume).
     std::atomic<int> volume{100};
+    /// SacredFire: the game's sound off, the volume kept (the menu's Mute, Ctrl+M anywhere). For
+    /// this session only: never saved, so the game never starts silent without saying why.
+    std::atomic<bool> muted{false};
     /// The settings menu's position (fraction of the screen), -1 until it is moved.
     std::atomic<float> menu_x{-1.0f}, menu_y{-1.0f};
     // FSR 4 checks (menu): the provider's auto exposure, the jitter sign it is given.
@@ -153,6 +183,10 @@ struct Values {
     std::atomic<int> ultrawide{-1};
     std::atomic<bool> ultrawide_ask{false};
     std::atomic<int> ultrawide_w{0}, ultrawide_h{0};
+    /// The launcher's aspect_ratio / aspect_output (scripts/aspect_ratio.py at start).
+    std::atomic<int> aspect_ratio{Aspect16x9};
+    std::atomic<int> aspect_w{0}, aspect_h{0};
+    bool aspect_ratio_seen = false, aspect_output_seen = false; ///< newer keys win while loading
     /// The desktop size of the game's monitor (window.cpp), for the ultrawide choice.
     std::atomic<int> display_w{0}, display_h{0};
     /// SacredFire: the upscaler (Temporal: off, FSR 1, FSR 3, DLSS).
@@ -183,9 +217,44 @@ struct Values {
     int startup_render_res = -1;
     bool startup_ultrawide = false;
     int startup_ultrawide_w = 0, startup_ultrawide_h = 0;
+    int startup_aspect_ratio = Aspect16x9;
     int startup_temporal = TemporalFsr1, startup_dlss_quality = 0, startup_dlss_output = 0;
     int startup_output_res = OutputDefault;
     int startup_live_resolution = 0;
+
+    bool GraphicsRestartRequired() const {
+        bool pending = object_motion != startup_object_motion || model_lod != startup_model_lod ||
+                       live_resolution != startup_live_resolution || aspect_ratio != startup_aspect_ratio;
+        for (int i = 0; i < EffectCount; ++i) pending |= effects[i] != startup_effects[i];
+        for (int i = 0; i < GamePatchCount; ++i) {
+            if (LiveGraphics() && i < 2) continue;
+            pending |= game_patches[i] != startup_game_patches[i];
+        }
+        return pending;
+    }
+
+    void SetRenderResolution(int value) {
+        render_res = value;
+        if (LiveGraphics()) {
+            native_resolution_requested = true;
+            if (temporal == TemporalDlss) dlss_quality = 0;
+        }
+    }
+
+    void SetAspectRatio(int ratio) {
+        aspect_ratio = ratio;
+        ultrawide = 0;
+        if (ratio == Aspect16x9) return;
+        const int w = aspect_w, h = aspect_h;
+        const bool tall = (w == 1920 && h == 1200) || (w == 1280 && h == 800) || (w == 2560 && h == 1600);
+        const bool wide = (w == 3440 && h == 1440) || (w == 2560 && h == 1080);
+        const bool super = (w == 5120 && h == 1440) || (w == 3840 && h == 1080) ||
+                           (w == 2560 && h == 720) || (w == 7680 && h == 2160);
+        if (!((ratio == Aspect16x10 && tall) || (ratio == Aspect21x9 && wide) || (ratio == Aspect32x9 && super))) {
+            aspect_w = ratio == Aspect16x10 ? 1920 : ratio == Aspect21x9 ? 3440 : 5120;
+            aspect_h = ratio == Aspect16x10 ? 1200 : 1440;
+        }
+    }
 };
 
 /// SacredFire: whether the render size the settings ask for differs from the one the game

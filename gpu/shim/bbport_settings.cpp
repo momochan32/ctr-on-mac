@@ -74,6 +74,14 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.friends_hide_me = i != 0;
     } else if (key == "friends_no_notices") {
         v.friends_no_notices = i != 0;
+    } else if (key == "spectate_share") {
+        v.spectate_share = i != 0;
+    } else if (key == "chat_enabled") {
+        v.chat_enabled = i != 0;
+    } else if (key == "chat_public") {
+        v.chat_public = i != 0;
+    } else if (key == "chat_in_race") {
+        v.chat_in_race = i != 0;
     } else if (key == "notice_position") {
         v.notice_position = std::clamp(i, 0, int(NoticeCount) - 1);
     } else if (key == "fps_limit") {
@@ -82,6 +90,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.async_pipelines = i != 0;
     } else if (key == "msaa") {
         v.msaa = i != 0;
+    } else if (key == "graphics_tab") {
+        v.graphics_tab = i != 0;
     } else if (key == "fullscreen") {
         v.fullscreen = i != 0;
     } else if (key == "borderless") {
@@ -126,6 +136,24 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         }
     } else if (key == "ultrawide") {
         v.ultrawide = i != 0 ? 1 : 0;
+    } else if (key == "aspect_ratio") {
+        v.aspect_ratio = Aspect16x9;
+        for (int a = 0; a < AspectRatioCount; ++a) {
+            if (value == AspectRatioKeys[a]) v.aspect_ratio = a;
+        }
+        v.aspect_ratio_seen = true;
+    } else if (key == "widescreen_layout" && !v.aspect_ratio_seen) {
+        v.aspect_ratio = value == "21x9" ? Aspect21x9 : value == "32x9" ? Aspect32x9 : Aspect16x9;
+    } else if (key == "aspect_output" || (key == "widescreen_output" && !v.aspect_output_seen)) {
+        if (key == "aspect_output") {
+            v.aspect_w = v.aspect_h = 0;
+            v.aspect_output_seen = true;
+        }
+        int w = 0, h = 0;
+        if (std::sscanf(value.c_str(), "%dx%d", &w, &h) == 2 && w > 0 && h > 0) {
+            v.aspect_w = w;
+            v.aspect_h = h;
+        }
     } else if (key == "ultrawide_ask") {
         v.ultrawide_ask = i != 0;
     } else if (key == "ultrawide_size") {
@@ -178,6 +206,9 @@ const char* MenuText(const char* english, const char* russian) {
 
 void Load() {
     auto& v = Get();
+    v.aspect_ratio = Aspect16x9;
+    v.aspect_w = v.aspect_h = 0;
+    v.aspect_ratio_seen = v.aspect_output_seen = false;
     for (int e = 0; e < EffectCount; ++e) {
         v.effects[e] = Effects[e].default_on;
     }
@@ -275,6 +306,7 @@ void Load() {
     v.startup_ultrawide = v.ultrawide == 1 && v.ultrawide_w > 0;
     v.startup_ultrawide_w = v.ultrawide_w;
     v.startup_ultrawide_h = v.ultrawide_h;
+    v.startup_aspect_ratio = v.aspect_ratio;
     v.startup_temporal = v.temporal;
     v.startup_dlss_quality = v.dlss_quality;
     v.startup_dlss_output = v.dlss_output;
@@ -293,6 +325,8 @@ bool RenderSizeNeedsRestart() {
         (ultrawide && (v.ultrawide_w != v.startup_ultrawide_w || v.ultrawide_h != v.startup_ultrawide_h))) {
         return true;
     }
+    if (v.LiveGraphics())
+        return v.dlss_output != v.startup_dlss_output;
     if (ultrawide) {
         return false; // the monitor's size decides, not render_res
     }
@@ -328,6 +362,17 @@ void ConfigureUpscalerSupport(bool fsr4, bool fsr411) {
                     UpscalerName(requested));
         v.upscaler = UpscalerFsr3;
     }
+}
+
+bool Fsr4Available() {
+    // As vk_fsr4.cpp's AssetDir; the notice comes with every bundle.
+    static const bool assets = [] {
+        const char* dir = std::getenv("BB_FSR4_DIR");
+        std::error_code ec;
+        return std::filesystem::is_regular_file(
+            std::filesystem::path(dir && dir[0] ? dir : "fsr4_shaders") / "LICENSE-FSR4-v07.txt", ec);
+    }();
+    return assets && Get().fsr4_supported;
 }
 
 bool FixedRenderSession() {
@@ -388,10 +433,15 @@ void Save() {
     put("friends_hide_activity", flag(v.friends_hide_activity));
     put("friends_hide_me", flag(v.friends_hide_me));
     put("friends_no_notices", flag(v.friends_no_notices));
+    put("spectate_share", flag(v.spectate_share));
+    put("chat_enabled", flag(v.chat_enabled));
+    put("chat_public", flag(v.chat_public));
+    put("chat_in_race", flag(v.chat_in_race));
     put("notice_position", std::to_string(v.notice_position.load()));
     put("fps_limit", std::to_string(v.fps_limit.load()));
     put("async_pipelines", flag(v.async_pipelines));
     put("msaa", flag(v.msaa));
+    put("graphics_tab", flag(v.graphics_tab));
     put("fullscreen", flag(v.fullscreen));
     put("borderless", flag(v.borderless));
     put("volume", std::to_string(v.volume.load()));
@@ -408,6 +458,17 @@ void Save() {
     if (v.render_res >= 0) put("render_res", std::to_string(RenderResHeights[v.render_res]));
     if (v.ultrawide >= 0) put("ultrawide", flag(v.ultrawide == 1));
     put("ultrawide_ask", flag(v.ultrawide_ask));
+    {
+        const int ratio = std::clamp(v.aspect_ratio.load(), 0, AspectRatioCount - 1);
+        put("aspect_ratio", AspectRatioKeys[ratio]);
+        const bool wide = ratio == Aspect21x9 || ratio == Aspect32x9;
+        put("widescreen_layout", wide ? AspectRatioKeys[ratio] : "off");
+        if (v.aspect_w > 0 && v.aspect_h > 0) {
+            const std::string output = std::to_string(v.aspect_w.load()) + "x" + std::to_string(v.aspect_h.load());
+            put("aspect_output", output);
+            if (wide) put("widescreen_output", output);
+        }
+    }
     if (v.ultrawide_w > 0) {
         put("ultrawide_size", std::to_string(v.ultrawide_w.load()) + "x" + std::to_string(v.ultrawide_h.load()));
     }

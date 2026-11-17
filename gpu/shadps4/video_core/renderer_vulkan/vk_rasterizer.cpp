@@ -16,6 +16,11 @@
 #include "bbport_free_check.h"
 #include "bbport_clobber.h"
 #include "bbport_guest_memory.h"
+#include "bbport_native_vk.h"
+#include "bbport_pm4_census.h"
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
 #include "common/hash.h"
 #include "common/debug.h"
@@ -35,6 +40,9 @@
 #include <cmath>
 #include "bbport_threads.h"
 #include "bbport_settings.h"
+#include "video_core/renderer_vulkan/bb_motion_blur.h"
+
+extern "C" void runtime_memory_read_backing(std::uintptr_t, void*, std::uint64_t);
 #include "video_core/renderer_vulkan/vk_runtime.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_hle.h"
@@ -622,6 +630,34 @@ void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
             .zoffset = vp_ctl.zoffset_enable ? vp.zoffset : 0.0f,
         };
         ctr_fsr3->OnGBufferPass(db_desc.first, cb_descs[3].first, viewport);
+    }
+    if (BbSettings::Get().shad_live_graphics && !scene_started && db_desc.first &&
+        std::popcount(key.mrt_mask & 0x7f) == 4) {
+        const auto& depth = texture_cache.GetImage(db_desc.first);
+        const auto w = depth.info.size.width, h = depth.info.size.height;
+        if (w >= 640 && h >= 360 && w * 2 >= h * 3 && w <= h * 4) {
+            scene_targets->SetNativeSize({w, h});
+            begin_memo.valid = false;
+            auto& settings = BbSettings::Get();
+            u32 height = h;
+            if (settings.native_resolution_requested) {
+                const int res = settings.render_res;
+                height = res >= 0 ? BbSettings::RenderResHeights[res] : 1080;
+            }
+            if (settings.temporal == BbSettings::TemporalDlss && settings.dlss_quality > 0 &&
+                (settings.startup_temporal != BbSettings::TemporalDlss ||
+                 settings.dlss_quality != settings.startup_dlss_quality || settings.native_resolution_requested)) {
+                constexpr float ratios[] = {1, 1, 2.0f/3, 0.58f, 0.5f, 1.0f/3};
+                height = u32(std::lround((settings.dlss_output ? 2160 : 1080) *
+                                        ratios[settings.dlss_quality.load()]));
+            }
+            const SceneResolution::Size size{u32(std::lround(double(w) * height / h)), height};
+            if (scene_targets->SetSize(size)) begin_memo.valid = false;
+            settings.native_scene_height = height;
+            settings.active_render_width = size.width;
+            settings.active_render_height = size.height;
+            scene_started = true;
+        }
     }
     if (upscaler->Enabled() && cb_descs[0].first) {
         upscaler->OnColorTarget(cb_descs[0].first);
@@ -1445,6 +1481,9 @@ bool Rasterizer::FilterDrawPasses() const {
 void Rasterizer::Draw(bool is_indexed, u32 index_offset, const PreparedDraw* prepared) {
     RENDERER_TRACE;
     BbStats::draws.fetch_add(1, std::memory_order_relaxed);
+    if (BbNativeVk::DrawsAlone()) {
+        return; // bbport: the native renderer draws the frame (BB_VK_ALONE=1)
+    }
 
     // bbport: with the draw pipeline this thread only selects the pipeline and hands the draw
     // to the recording thread (DrawRecord there); draws FilterDraw handles itself run here.
@@ -1744,6 +1783,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     const bool display_start = display_draw && !last_draw_display;
     last_draw_display = display_draw;
     if (display_start) {
+        scene_started = false;
         // The previous draw's target is the finished scene the display pass stretches.
         fsr_pending = (BbSettings::Get().temporal == BbSettings::TemporalFsr1 || ctr_fsr3->Enabled()) &&
                       cb_descs[0].first;
@@ -1754,7 +1794,6 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         fsr_pending = false;
     }
     if (camera_motion->Enabled() && display_start) {
-        scene_started = false;
         camera_motion->OnDisplayPass(cb_descs[0].first);
         if (upscaler->OnFrameStart()) {
             object_motion->InvalidateHistory();
@@ -1934,6 +1973,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     UpdateDynamicState(pipeline, is_indexed);
     MarkPass(pipeline, state);
     scheduler.BeginRendering(state);
+    MarkDraw(pipeline);
 
     const auto& vs_info = pipeline->GetStage(Shader::SwStage::Vertex);
     const auto& fetch_shader = pipeline->GetFetchShader();
@@ -1945,6 +1985,31 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     const u32 first_vertex = vertex_offset;
     const u32 first_instance = instance_offset;
     const auto* ps_info = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+    if (ps_info) {
+        static std::array<int, 2> last_blur_state{-1, -1};
+        for (std::size_t i = 0; i < std::size(BbBlur::Shaders); ++i) {
+            if (ps_info->pgm_hash != BbBlur::Shaders[i]) continue;
+            const bool disabled = pipeline->GetGraphicsKey().no_motion_blur;
+            const bool requested = BbSettings::Get().game_patches[1];
+            const int state = int(disabled) | (int(requested) << 1);
+            if (last_blur_state[i] != state) {
+                last_blur_state[i] = state;
+                std::array<float, 10> constants{};
+                for (const auto& resource : ps_info->buffers) {
+                    if (resource.IsSpecial()) continue;
+                    const auto buffer = resource.GetSharp(*ps_info);
+                    if (buffer.Valid() && buffer.GetSize() >= sizeof(constants)) {
+                        runtime_memory_read_backing(buffer.base_address, constants.data(), sizeof(constants));
+                        break;
+                    }
+                }
+                std::printf("Motion blur: shadPS4 requested %s, drawing %s (shader %llx, strength %g, velocity scale %g)\n",
+                            requested ? "Off" : "On", disabled ? "Off" : "On",
+                            static_cast<unsigned long long>(ps_info->pgm_hash), constants[8], constants[9]);
+                std::fflush(stdout);
+            }
+        }
+    }
     const Breadcrumbs::Crumb crumb{
         .kind = is_indexed ? Breadcrumbs::Kind::DrawIndexed : Breadcrumbs::Kind::Draw,
         .hash = {vs_info.pgm_hash, ps_info ? ps_info->pgm_hash : 0},
@@ -1989,6 +2054,9 @@ void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u3
                               u32 max_count, VAddr count_address, u16 vertex_sgpr_offset,
                               u16 instance_sgpr_offset) {
     RENDERER_TRACE;
+    if (BbNativeVk::DrawsAlone()) {
+        return; // bbport: the native renderer draws the frame (BB_VK_ALONE=1)
+    }
     // bbport: like direct draws, handed to the recording thread after the pipeline selection
     // (else the GPU thread waited here for a whole frame of queued draws).
     const bool pipelined = UseDrawPipe() && FilterDrawPasses() &&
@@ -2080,6 +2148,7 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     UpdateDynamicState(pipeline, is_indexed);
     MarkPass(pipeline, state);
     scheduler.BeginRendering(state);
+    MarkDraw(pipeline);
 
     ASSERT(stride == (is_indexed ? sizeof(VkDrawIndexedIndirectCommand)
                                  : sizeof(VkDrawIndirectCommand)));
@@ -2163,6 +2232,7 @@ void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
     if (upscaler->Enabled()) {
         upscaler->OnDispatch(cs.pgm_hash);
     }
+    BbPm4::CountDispatch(cs.pgm_hash); // lab: what compute shadPS4 still runs, by program
     bool hle;
     {
         BB_SECTION(ShaderHle);
@@ -2174,6 +2244,67 @@ void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
 
     if (!BindResources(pipeline)) {
         return;
+    }
+    // bbport lab: with BB_VK_ALONE=1 shadPS4 still runs compute, into its own images; the native
+    // renderer then reads guest memory without the result. Name what each compute shader writes.
+    if (BbNativeVk::DrawsAlone()) {
+        static std::mutex seen_mutex;
+        static std::unordered_set<u64> seen;
+        std::lock_guard seen_lock(seen_mutex);
+        if (seen.size() < 150 && seen.insert(cs.pgm_hash).second) {
+            std::string written;
+            for (const auto& image : cs.images) {
+                if (image.is_written) {
+                    const auto sharp = image.GetSharp(cs);
+                    written += fmt::format(" image {:x} {}x{} dfmt {}", sharp.Address(), sharp.width + 1,
+                                           sharp.height + 1, u32(sharp.GetDataFmt()));
+                }
+            }
+            for (const auto& buffer : cs.buffers) {
+                if (buffer.is_written) {
+                    const auto sharp = buffer.GetSharp(cs);
+                    written += fmt::format(" buffer {:x} {} bytes", u64(sharp.base_address), sharp.GetSize());
+                }
+            }
+            std::printf("Native Vulkan: compute %016llx (%ux%ux%u groups) writes:%s\n",
+                        static_cast<unsigned long long>(cs.pgm_hash), cs_program.dim_x, cs_program.dim_y,
+                        cs_program.dim_z, written.empty() ? " nothing named" : written.c_str());
+            // lab: the program for the native compute translation (logs/cs-dump/<hash>.bin: the code
+            // up to the end of its OrbShdr info; <hash>.json: the dispatch registers)
+            {
+                const auto* code = cs_program.Address<const u32*>();
+                const auto& info = AmdGpu::SearchBinaryInfo(code);
+                const auto* end = reinterpret_cast<const u8*>(&info) + sizeof(info);
+                const auto bytes = std::size_t(end - reinterpret_cast<const u8*>(code));
+                std::error_code ec;
+                std::filesystem::create_directories("logs/cs-dump", ec);
+                const std::string base = fmt::format("logs/cs-dump/{:016x}", cs.pgm_hash);
+                if (FILE* f = std::fopen((base + ".bin").c_str(), "wb")) {
+                    std::fwrite(code, 1, bytes, f);
+                    std::fclose(f);
+                }
+                if (FILE* f = std::fopen((base + ".json").c_str(), "w")) {
+                    u32 settings;
+                    std::memcpy(&settings, &cs_program.settings, sizeof(settings));
+                    std::string user;
+                    for (u32 i = 0; i < cs_program.settings.num_user_regs && i < 16; ++i) {
+                        user += fmt::format("{}{}", i ? ", " : "", cs_program.user_data[i]);
+                    }
+                    std::fprintf(f,
+                                 "{\"hash\": \"%016llx\", \"code_bytes\": %u, \"file_bytes\": %zu, "
+                                 "\"rsrc2\": %u, \"num_user_regs\": %u, \"tgid_enable\": %u, "
+                                 "\"lds_bytes\": %u, \"threads\": [%u, %u, %u], "
+                                 "\"groups\": [%u, %u, %u], \"user_data\": [%s]}\n",
+                                 static_cast<unsigned long long>(cs.pgm_hash), u32(info.length), bytes,
+                                 settings, u32(cs_program.settings.num_user_regs),
+                                 u32(cs_program.settings.tgid_enable), cs_program.SharedMemSize(),
+                                 u32(cs_program.num_thread_x.full), u32(cs_program.num_thread_y.full),
+                                 u32(cs_program.num_thread_z.full), cs_program.dim_x, cs_program.dim_y,
+                                 cs_program.dim_z, user.c_str());
+                    std::fclose(f);
+                }
+            }
+        }
     }
 
     if (needs_barrier) {
@@ -2291,13 +2422,18 @@ void Rasterizer::Finish() {
 }
 
 void Rasterizer::OnSubmit() {
+    BbPm4::PhaseLap(BbPm4::OsDrain); // lab: where the submission end's time goes
     DrainDrawPipe();
+    BbPm4::PhaseLap(BbPm4::OsFaults);
     if (fault_process_pending) {
         fault_process_pending = false;
         buffer_cache.ProcessFaultBuffer();
     }
+    BbPm4::PhaseLap(BbPm4::OsDownloads);
     texture_cache.ProcessDownloadImages();
+    BbPm4::PhaseLap(BbPm4::OsGarbage);
     texture_cache.RunGarbageCollector();
+    BbPm4::PhaseLap(BbPm4::OsTick);
     runtime.TickFrame();
 }
 
@@ -3818,7 +3954,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
     }
     // A proxy attachment cannot represent MSAA or a feedback loop that reads the
     // same image through the guest's native descriptor during this draw.
-    bool reduced = scene_started && upscaler->RasterScaling() && key.num_samples == 1;
+    bool reduced = scene_started && upscaler->RasterScaling();
     // BB_SCENE_DEBUG=<file>: once the file exists, why the passes of one frame keep the
     // native size (see NoteFrameStart).
     const bool debug_pass = scene_debug_frame && scene_started;
@@ -3873,7 +4009,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         }
         std::printf("Scene pass: reduced %d %s\n", reduced, why.c_str());
     }
-    push_data.scene_size = reduced ? SceneResolution::Pack(scene_targets->Size()) : 0;
+    push_data.scene_size = reduced ? scene_targets->ShaderSize() : 0;
     if (BbStats::enabled) {
         BbStats::reduced_draws.fetch_add(reduced, std::memory_order_relaxed);
         BbStats::scene_draws.fetch_add(scene_started, std::memory_order_relaxed);
@@ -4117,7 +4253,8 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         const auto proxy = pass_size.value_or(size);
         state.width = proxy.width;
         state.height = proxy.height;
-        target_scale = {float(size.width) / 1920.0f, float(size.height) / 1080.0f};
+        const auto native = scene_targets->NativeSize();
+        target_scale = {float(size.width) / native.width, float(size.height) / native.height};
     }
     if (FrameCapture::Active()) {
         std::array<const VideoCore::ImageInfo*, AmdGpu::NUM_COLOR_BUFFERS> colors{};
@@ -4279,7 +4416,18 @@ bool Rasterizer::InvalidateMemory(VAddr addr, u64 size, bool assume_locks) {
     }
     buffer_cache.InvalidateMemory(addr, size, assume_locks);
     texture_cache.InvalidateMemory(addr, size);
+    if (native_written) {
+        native_written(addr, size);
+    }
     return true;
+}
+
+void Rasterizer::WatchWrites(VAddr addr, u64 size, bool watch) {
+    if (watch) {
+        page_manager.UpdatePageWatchers<true>(addr, size);
+    } else {
+        page_manager.UpdatePageWatchers<false>(addr, size);
+    }
 }
 
 void Rasterizer::NoteAssetWrite(VAddr addr, u64 size) {
@@ -4298,6 +4446,11 @@ void Rasterizer::InvalidateAfterWrite(VAddr addr, u64 size) {
     DrainDrawPipe();
     buffer_cache.NotePreciseUpload(addr, size);
     texture_cache.InvalidateMemory(addr, size);
+    // bbport: the native renderer's resident geometry and textures there are stale too (a course
+    // loaded over the title screen's meshes)
+    if (native_written) {
+        native_written(addr, size);
+    }
 }
 
 void Rasterizer::NoteCommandWrite(VAddr addr, const void* data, u64 size, bool recording_thread) {
@@ -4313,6 +4466,9 @@ void Rasterizer::NoteCommandWrite(VAddr addr, const void* data, u64 size, bool r
         buffer_cache.InvalidateMemory(addr, size, recording_thread);
     }
     texture_cache.InvalidateMemory(addr, size);
+    if (native_written) {
+        native_written(addr, size);
+    }
 }
 
 void Rasterizer::OnCpuWrite(VAddr addr, u64 size) {
@@ -4376,6 +4532,9 @@ void Rasterizer::RegisterMemory(VAddr addr, u64 size) {
 }
 
 void Rasterizer::UnmapMemory(VAddr addr, u64 size) {
+    if (native_unmapped) {
+        native_unmapped(addr, size);
+    }
     buffer_cache.NotePreuploadMapping(addr, size, false);
     buffer_cache.UnmapInPlace(addr, size);
     buffer_cache.DropTwins(addr, size);
@@ -4779,6 +4938,18 @@ void Rasterizer::MarkPass(const GraphicsPipeline* pipeline, const RenderState& s
                                          : std::string{"-"},
                            vs.pgm_hash, ps ? ps->pgm_hash : 0);
     });
+}
+
+void Rasterizer::MarkDraw(const GraphicsPipeline* pipeline) {
+    auto* profiler = GpuProfiler::Get();
+    if (!profiler || !profiler->Draws()) {
+        return;
+    }
+    const u64 vs = pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash;
+    const auto* ps_info = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+    const u64 ps = ps_info ? ps_info->pgm_hash : 0;
+    profiler->MarkDraw(vs * 0x9E3779B97F4A7C15ull ^ ps ^ 0xD8A3ull,
+                       [&] { return fmt::format("draw vs {:016x} ps {:016x}", vs, ps); });
 }
 
 vk::ImageView Rasterizer::DisplayFsr(VideoCore::ImageId id, vk::ImageView game_view,

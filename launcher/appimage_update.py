@@ -2,11 +2,12 @@
 """Updating the Linux AppImage from GitHub releases, as the Windows launcher updates its package
 (launcher/windows/port_update.cpp: same repository and version rules).
 
-The latest release names its AppImage SacredFire-<version>-x86_64.AppImage. The new one is
-downloaded next to the running one (APPIMAGE) as a .part file, checked against the size and the
-SHA-256 the release gives, made executable and renamed into place; only then is the old file
-removed. A failed or interrupted update leaves the running AppImage as it was. The Steam shortcut
-points at <data dir>/SacredFire.AppImage, which the new launcher moves to itself when it opens
+The latest release names its AppImage SacredFire-<version>-x86_64.AppImage or SacredFire-x86_64.AppImage.
+The new one is downloaded next to the running one (APPIMAGE) as a .part file, checked against the size
+and the SHA-256 the release gives, made executable and replaces the running AppImage in place;
+preserving its path and filename so desktop shortcuts, scripts and managers remain valid. A failed
+or interrupted update leaves the running AppImage as it was. The Steam shortcut points at
+<data dir>/SacredFire.AppImage, which the new launcher moves to itself when it opens
 (steam_shortcuts.stable_appimage_link)."""
 import hashlib
 import json
@@ -28,7 +29,7 @@ INTEL_MAC = MACOS and platform.machine() == "x86_64"
 if MACOS:
     ASSET = re.compile(r"^CTR-Online-on-Intel-Mac\.dmg$" if INTEL_MAC else r"^CTR-Online-on-Mac\.dmg$")
 else:
-    ASSET = re.compile(r"^SacredFire-.+-x86_64\.AppImage$")
+    ASSET = re.compile(r"^SacredFire(?:-.+)?-x86_64\.AppImage$")
 
 
 def parse_version(text):
@@ -98,11 +99,11 @@ def running_appimage():
 
 
 def install(release, appimage, progress=lambda done, total: None, opener=urllib.request.urlopen):
-    """Downloads the release's AppImage next to appimage and puts it in place of it: the new
-    file's path. Raises OSError (with the reason) and leaves appimage untouched on failure."""
-    folder = Path(appimage).parent
-    target = folder / release["name"]
-    part = folder / (release["name"] + ".part")
+    """Downloads the release's AppImage and puts it in place of appimage: the updated
+    file's path. Preserves the filename and path of the running AppImage so shortcuts and desktop
+    entries do not break. Raises OSError (with the reason) and leaves appimage untouched on failure."""
+    target = Path(appimage).resolve()
+    part = target.with_name(target.name + ".part")
     digest = hashlib.sha256()
     done = 0
     try:
@@ -122,12 +123,6 @@ def install(release, appimage, progress=lambda done, total: None, opener=urllib.
     except BaseException:
         part.unlink(missing_ok=True)
         raise
-    old = Path(appimage).resolve()
-    if old != target.resolve():
-        try:
-            old.unlink()
-        except OSError:
-            pass  # a read-only folder or file: the old one stays next to the new one
     return target
 
 

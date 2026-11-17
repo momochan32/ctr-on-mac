@@ -57,25 +57,31 @@ def selected(root,config):
     for key in ('order','disabled'):
         if not isinstance(prefs.get(key,[]),list) or not all(isinstance(n,str) for n in prefs.get(key,[])):raise ValueError('Invalid mod selection '+key)
     return list(dict.fromkeys(n for n in [*prefs.get('order',[]),*available] if n in available and n not in prefs.get('disabled',[])))
-def claims(folder,settings=None):
+def claims(folder,settings=None,options=None):
     folder=Path(folder)
     if not extended(folder):return [(p.as_posix().casefold(),source) for p,source in mods.mod_files(folder)]
     m=fmt.validate_manifest(metadata(folder));items=[]
     for r in m['files']:
         if r['file'].startswith('archives/'):items.append((r['file'].casefold(),under(folder,r['file'])))
-    alternatives=[fmt.resolve(m,settings)[1]] if settings is not None else [flat for _,flat in fmt.expanded_variants(m)]
+    alternatives=[fmt.resolve(m,settings,options)[1]] if settings is not None else [flat for _,flat in fmt.expanded_variants(m)]
     operations=[op for flat in alternatives for op in flat.get('operations',[])]
     for op in operations:
-        if op['kind']=='archive_asset':key='archives/'+op['archive']+'::'+op['asset']
-        elif op['kind'].startswith('shader_'):key='@shader/'+op['target']
-        else:key=op['target']
-        items.append((key.casefold(),folder/'mod.json'))
+        # Texts claim object::field under their entry: packages changing different texts of one
+        # entry compose, and a whole-entry edit of it still conflicts with them.
+        if op['kind']=='localized_strings':
+            keys=['archives/'+op['archive']+'::'+op['asset']+'::'+name+'::'+field for name,fields in op['strings'].items() for field in fields]
+        elif op['kind']=='archive_asset':keys=['archives/'+op['archive']+'::'+op['asset']]
+        elif op['kind'].startswith('shader_'):keys=['@shader/'+op['target']]
+        else:keys=[op['target']]
+        items.extend((key.casefold(),folder/'mod.json') for key in keys)
     return list(dict(items).items()) if settings is None else items
 def mod_files(folder):return [(Path(key),source) for key,source in claims(folder)]
-def conflicts(root,config,settings=None):
+def conflicts(root,config,settings=None,options=None):
+    from mod_options import load as load_options
+    saved_options=options if options is not None else load_options(Path(root).parent/'mod-state/options.json')
     names=selected(root,config);owners=[];problems=[];installed={n:metadata(package_folder(root,n)) for n in names}
     for name in names:
-        for key,source in claims(package_folder(root,name),settings):
+        for key,source in claims(package_folder(root,name),settings,saved_options.get(name)):
             for prior,owner in owners:
                 if key==prior or key.startswith(prior+'::') or prior.startswith(key+'::'):
                     problems.append(key+': '+owner+' / '+name)
@@ -104,23 +110,32 @@ def has_extended(root,config):return any((n in zip_entries(root) or extended(pac
 
 def prepare(root,state,game,mod_root,selection,base_config,environment,log=print):
     root=Path(root).resolve();state=Path(state).resolve();game=Path(game).resolve();mod_root=Path(mod_root)
+    from prepare import sfo
+    game_info=sfo((game/'sce_sys/param.sfo').read_bytes())
+    title_id,app_version=game_info.get('TITLE_ID'),game_info.get('APP_VER')
+    if title_id not in ('CUSA13795','CUSA14876') or app_version!='01.21':
+        raise ValueError('Mod packages require a supported CTR edition at 01.21')
+    from mod_options import load as load_options,effective as effective_options
+    saved_options=load_options(state/'options.json')
     base=read_ini(base_config)
     base.setdefault('widescreen_layout','off')
-    problems=conflicts(mod_root,selection)
+    problems=conflicts(mod_root,selection,options=saved_options)
     if problems:raise ValueError('Mod conflicts: '+'; '.join(problems))
     names=selected(mod_root,selection)
     from mod_variants import choose
     base,automatic_settings=choose([metadata(package_folder(mod_root,n)) for n in names],base)
-    problems=conflicts(mod_root,selection,base)
+    problems=conflicts(mod_root,selection,base,saved_options)
     if problems:raise ValueError('Mod conflicts: '+'; '.join(problems))
     packages=[];operations=[];settings={};overrides={};patches=[];whole=[]
     runtime=sha(engine(root))
     effective=base.copy();source_state=snapshot(game);chosen_variants={}
+    added={}  # mod -> the archives it adds (whole files, new or replaced game files)
     for name in names:
         folder=package_folder(mod_root,name)
         if extended(folder):
             raw=fmt.validate_folder(folder)
-            variant,m=fmt.resolve(raw,base)
+            option_values=effective_options(raw,saved_options.get(name))
+            variant,m=fmt.resolve(raw,base,option_values)
             if variant:chosen_variants[name]=variant
             if m['id']!=name:raise ValueError('Package ID/folder mismatch: '+name)
             compat=m['compatibility']
@@ -133,21 +148,30 @@ def prepare(root,state,game,mod_root,selection,base_config,environment,log=print
                     if key in target and target[key]!=value:raise ValueError('Conflicting '+field+': '+key)
                     target[key]=value
             operations.extend((op,folder) for op in m.get('operations',[]))
-            patches.extend((under(folder,p),name) for p in m.get('patches',[]))
+            for patch_name in m.get('patches',[]):
+                patch_path=under(folder,patch_name)
+                patch_xml=ET.parse(patch_path).getroot()
+                patch_ids=[node.text for node in patch_xml.findall('./TitleID/ID')]
+                if patch_ids!=[title_id] or any(meta.get('AppVer')!=app_version for meta in patch_xml.iter('Metadata')):
+                    raise ValueError(name+': executable patch targets a different game edition/version')
+                patches.append((patch_path,name))
             whole.extend((under(folder,r['file']),r['file']) for r in m['files'] if r['file'].startswith('archives/'))
-            packages.append({'id':name,'manifest':sha(folder/'mod.json'),'variant':variant})
+            added[name]=[r['file'] for r in m['files'] if r['file'].startswith('archives/')]+\
+                [op['target'] for op in m.get('operations',[]) if op['kind']=='game_file']
+            packages.append({'id':name,'manifest':sha(folder/'mod.json'),'variant':variant,'options':option_values})
         else:
             files=list(mods.mod_files(folder));whole.extend((source,path.as_posix()) for path,source in files)
+            added[name]=[path.as_posix() for path,_ in files]
             packages.append({'id':name,'files':[[p.as_posix(),sha(s)] for p,s in files]})
     effective.update(settings)
     for name in names:
         raw=metadata(package_folder(mod_root,name))
-        m=fmt.resolve(raw,base)[1] if 'schemaVersion' in raw else raw
+        m=fmt.resolve(raw,base,saved_options.get(name))[1] if 'schemaVersion' in raw else raw
         for key,values in m.get('constraints',{}).items():
             if effective.get(key) not in values:raise ValueError(name+': '+key+' must be one of '+', '.join(values))
-    identity={'game':str(game),'source_files':source_state,'packages':packages,'settings':effective,
+    identity={'game':str(game),'target':[title_id,app_version],'target_policy':1,'source_files':source_state,'packages':packages,'settings':effective,
         'environment':overrides,'engine':runtime,'run':sha(root/'run.py'),
-        'patch_compiler':sha(root/'scripts/patches.py'),
+        'patch_compiler':sha(root/'scripts/patches.py'),'racer_registry':sha(Path(__file__).with_name('racer_registry.py')),
         'base_patches':{p.name:sha(p) for p in (root/'patches').glob('*.xml')}}
     key=sha_bytes(json.dumps(identity,sort_keys=True).encode())[:24]
     # New namespace: old full-game profiles must never be reused by this loader.
@@ -175,14 +199,24 @@ def prepare(root,state,game,mod_root,selection,base_config,environment,log=print
                         if sha_bytes(data)!=op['patched_sha256']:raise ValueError('Replacement checksum mismatch')
                     # Only the mod's replacement content, never an unchanged game file.
                     dest=under(staging/'files',op['target']);dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(data)
-            records=[{'operation':op,'folder':str(folder)} for op,folder in operations if op['kind']=='archive_asset']
+            # Racers of several mods: one registration (racer_registry.py) in the highest update archive.
+            import racer_registry
+            sources=[];whole_sources={target.casefold():source for source,target in whole}
+            for name in names:
+                for target in added.get(name,[]):
+                    if racer_registry.update_number(target) is None:continue
+                    staged=under(staging/'files',target)
+                    sources.append((name,target,staged if staged.is_file() else whole_sources[target.casefold()],added[name]))
+            merged=racer_registry.prepare(game,staging/'files',sources,log)
+            if merged:save_json(staging/'registry.json',{'target':merged})
+            records=[{'operation':op,'folder':str(folder)} for op,folder in operations if op['kind'] in ('archive_asset','localized_strings')]
             save_json(staging/'archive-plan.json',records)
             from mod_overlays import compose
             compose(game,staging/'archives',[(r['operation'],r['folder']) for r in records],{})
             (staging/'patches').mkdir()
             for p in (root/'patches').glob('*.xml'):shutil.copy2(p,staging/'patches'/p.name)
             if (staging/'patches/OCTR-Mod-Content.xml').exists():raise ValueError('Reserved generated patch filename is already used')
-            xml=ET.Element('Patch');ids=ET.SubElement(xml,'TitleID');ET.SubElement(ids,'ID').text='CUSA13795'
+            xml=ET.Element('Patch');ids=ET.SubElement(xml,'TitleID');ET.SubElement(ids,'ID').text=title_id
             for path,name in patches:
                 for meta in ET.parse(path).getroot().iter('Metadata'):
                     meta.set('Name',name+': '+meta.get('Name',''));meta.set('isEnabled','true');xml.append(meta)
@@ -194,7 +228,8 @@ def prepare(root,state,game,mod_root,selection,base_config,environment,log=print
         except BaseException:
             log('Incomplete preparation preserved at '+str(staging));raise
     # Full PAKs/loose files are read directly from mod storage by the engine.
-    replacements=[(Path(target),source) for source,target in whole]
+    registry=json.loads((cache/'registry.json').read_text())['target'].casefold() if (cache/'registry.json').exists() else None
+    replacements=[(Path(target),source) for source,target in whole if target.casefold()!=registry]
     replacements.extend((p.relative_to(cache/'files'),p) for p in regular_tree(cache/'files'))
     from mod_overlays import file_map
     file_map(game,cache/'file-map.bin',cache/'directories',replacements)

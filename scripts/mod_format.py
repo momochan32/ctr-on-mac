@@ -2,18 +2,19 @@
 Author: tcosi. SPDX-License-Identifier: GPL-2.0-or-later
 """
 from pathlib import Path
-import json,math,re,stat,zipfile
+import json,math,re,stat,zipfile,hashlib,itertools
+from collections import OrderedDict
 import xml.etree.ElementTree as ET
 from mod_components import safe_path,under,sha,regular_tree
 
 MARKER='octr-mod.required'
 MARKER_CONTENT=b'OCTR Mod Package 2\n'
-CAPABILITIES={'archive-assets','game-files','xml-patches','shaders','settings','environment','dependencies','constraints','variants','variant-settings','code-signatures'}
+CAPABILITIES={'archive-assets','game-files','xml-patches','shaders','settings','environment','dependencies','constraints','variants','variant-settings','code-signatures','localized-strings','mod-options'}
 SETTINGS={'output_res','render_res','widescreen_layout','upscaler','temporal','dlss_quality','dlss_output','fps_limit',
  'patch_60fps','patch_no_motion_blur','patch_pro_1080p','async_pipelines','fullscreen','show_fps','preset','menu_language'}
 ENVIRONMENT={'BB_NEO','BB_FPS','BB_VBLANK_HZ','BB_DMEM_MB','BB_PREUPLOAD'}
 KINDS={'archive_asset':'archive-assets','game_file':'game-files','shader_file':'shaders',
- 'shader_bytes':'shaders','shader_position_scale':'shaders'}
+ 'shader_bytes':'shaders','shader_position_scale':'shaders','localized_strings':'localized-strings'}
 HEX=re.compile('[0-9a-f]{64}')
 
 def error(message):raise ValueError('OCTR mod format 2: '+message)
@@ -45,24 +46,35 @@ def string_values(values,allowed,label):
 
 def expanded_variants(m):
     """Expand reusable operations and static alternatives; never evaluate package code."""
+    if 'configuration' in m:
+        from mod_options import validate
+        validate(m['configuration'])
     if 'variants' not in m:
         if 'operationSets' in m:error('operationSets requires variants')
+        if any('useOperations' in rule for rule in m.get('configuration',{}).values()):error('option useOperations requires variants and operationSets')
         return [(None,m)]
     if 'variants' not in m.get('requiresCapabilities',[]):error('missing variants capability')
     variants=m['variants'];sets=m.get('operationSets',{})
-    if not isinstance(variants,list) or not variants or len(variants)>64:error('variants must contain 1–64 alternatives')
+    if not isinstance(variants,list) or not variants or len(variants)>256:error('variants must contain 1–256 alternatives')
     if not isinstance(sets,dict) or len(sets)>64:error('invalid operationSets')
+    for rule in m.get('configuration',{}).values():
+        if any(name not in sets for names in rule.get('useOperations',{}).values() for name in names):error('unknown option operationSet')
     for name,ops in sets.items():
         slug(name)
         if not isinstance(ops,list):error('operationSet must be an operations array')
     ids=set();result=[]
     for v in variants:
-        if not isinstance(v,dict) or set(v)-{'id','when','useOperations','operations','patches','settings','environment','constraints'}:
+        if not isinstance(v,dict) or set(v)-{'id','when','whenOptions','useOperations','operations','patches','settings','environment','constraints'}:
             error('invalid variant fields')
         slug(v.get('id'))
         if v['id'] in ids:error('duplicate variant ID')
-        ids.add(v['id']);conditions=v.get('when')
-        if not isinstance(conditions,dict) or not conditions:error('variant needs nonempty when conditions')
+        ids.add(v['id']);conditions=v.get('when',{})
+        option_conditions=v.get('whenOptions',{})
+        if not isinstance(conditions,dict) or not isinstance(option_conditions,dict) or not (conditions or option_conditions):error('variant needs when or whenOptions conditions')
+        from mod_options import domain
+        declarations=m.get('configuration',{})
+        for key,values in option_conditions.items():
+            if key not in declarations or not isinstance(values,list) or not values or any(type(value) is not type(declarations[key]['default']) or value not in domain(declarations[key]) for value in values):error('invalid mod option condition '+key)
         for key,values in conditions.items():
             if key not in SETTINGS or not isinstance(values,list) or not values or not all(isinstance(s,str) and s for s in values):
                 error('invalid variant condition '+key)
@@ -78,31 +90,76 @@ def expanded_variants(m):
         result.append((v,flat))
     return result
 
-def resolve(m,settings):
+def resolve(m,settings,options=None):
+    from mod_options import effective
+    options=effective(m,options)
     if 'variantSettings' in m:
         from mod_variants import choose
         settings=choose([m],settings)[0]
     alternatives=expanded_variants(m)
-    matches=[(v,flat) for v,flat in alternatives if v is None or all(settings.get(k) in values for k,values in v['when'].items())]
+    matches=[(v,flat) for v,flat in alternatives if v is None or all(settings.get(k) in values for k,values in v.get('when',{}).items()) and all(options.get(k) in values for k,values in v.get('whenOptions',{}).items())]
     if len(matches)!=1:
-        error('exactly one variant must match the base settings; found '+str(len(matches))+'. Check output_res and render_res, then fully relaunch.')
+        error('exactly one variant must match the game settings and mod options; found '+str(len(matches))+'. Check the settings and mod configuration, then fully relaunch.')
     v,flat=matches[0]
+    from mod_options import patch_paths
+    flat=dict(flat);flat['patches']=list(flat.get('patches',[]))+patch_paths(m,options)
+    flat['operations']=list(flat.get('operations',[]))
+    used_sets=set(v.get('useOperations',[])) if v else set()
+    for key,rule in m.get('configuration',{}).items():
+        value=options[key];key_value=('true' if value else 'false') if type(value) is bool else value
+        for name in rule.get('useOperations',{}).get(key_value,[]):
+            if name not in used_sets:flat['operations'].extend(m['operationSets'][name]);used_sets.add(name)
     return (v['id'] if v else None),flat
 
+_validated_manifests=OrderedDict()
+
 def validate_manifest(m):
+    # Cache declarative checks only, by complete content, within this process.
+    # validate_folder still inventories/hashes every payload on every call.
+    try:key=hashlib.sha256(json.dumps(m,sort_keys=True,separators=(',',':')).encode()).digest()
+    except (TypeError,ValueError):return _validate_manifest(m)
+    if key in _validated_manifests:
+        _validated_manifests.move_to_end(key)
+        return m
+    result=_validate_manifest(m)
+    _validated_manifests[key]=None
+    if len(_validated_manifests)>4096:_validated_manifests.popitem(last=False)
+    return result
+
+def _validate_manifest(m):
     if not isinstance(m,dict) or m.get('schemaVersion')!=2:error('unsupported schemaVersion')
     if 'variants' in m or 'operationSets' in m:
         alternatives=expanded_variants(m)
-        for _,flat in alternatives:validate_manifest(flat)
+        option_sets={name for r in m.get('configuration',{}).values() for names in r.get('useOperations',{}).values() for name in names}
+        for variant,flat in alternatives:
+            remaining=option_sets-set(variant.get('useOperations',[]))
+            checked=dict(flat);checked['operations']=list(flat.get('operations',[]))+[op for name in remaining for op in m['operationSets'][name]]
+            # References were checked against the parent operationSets above;
+            # the flattened validation input contains their actual operations.
+            if 'configuration' in checked:
+                checked['configuration']={key:{k:v for k,v in rule.items() if k!='useOperations'} for key,rule in checked['configuration'].items()}
+            validate_manifest(checked)
         for key,rule in m.get('variantSettings',{}).items():
-            domains=[set(v['when'][key]) for v,_ in alternatives if key in v['when']]
+            domains=[set(v.get('when',{})[key]) for v,_ in alternatives if key in v.get('when',{})]
             if domains and not set(rule['allowed'])<=set.union(*domains):error('variantSettings allowed values are not covered by variants: '+key)
+        from mod_options import combinations,domain
+        if 'configuration' in m and all(not v.get('when') for v,_ in alternatives):
+            # Enumerate each variant's supported choices once instead of testing
+            # every choice against every variant. Duplicates and gaps still fail.
+            rules=m['configuration'];covered=set()
+            for variant,_ in alternatives:
+                conditions=variant.get('whenOptions',{})
+                domains=[[v for v in domain(rule) if v in conditions.get(k,domain(rule))] for k,rule in rules.items()]
+                for values in itertools.product(*domains):
+                    if values in covered:error('Each mod option combination must select exactly one variant')
+                    covered.add(values)
+            if len(covered)!=len(combinations(m)):error('Each mod option combination must select exactly one variant')
         defaults={k:r['default'] for k,r in m.get('variantSettings',{}).items()}
-        if defaults and all(set(v['when'])<=set(defaults) for v,_ in alternatives):
-            if sum(all(defaults[k] in values for k,values in v['when'].items()) for v,_ in alternatives)!=1:error('variantSettings defaults must select exactly one variant')
+        if defaults and not m.get('configuration') and all(set(v.get('when',{}))<=set(defaults) for v,_ in alternatives):
+            if sum(all(defaults[k] in values for k,values in v.get('when',{}).items()) for v,_ in alternatives)!=1:error('variantSettings defaults must select exactly one variant')
         return m
     allowed={'schemaVersion','id','name','version','author','description','files','requiresCapabilities',
-             'compatibility','requires','conflicts','operations','patches','settings','environment','constraints','source','variantSettings'}
+             'compatibility','requires','conflicts','operations','patches','settings','environment','constraints','source','variantSettings','configuration'}
     if set(m)-allowed:error('unknown manifest fields: '+', '.join(sorted(set(m)-allowed)))
     slug(m.get('id'));version(m.get('version'))
     for key in ('name','author','description'):
@@ -111,6 +168,10 @@ def validate_manifest(m):
     if not isinstance(caps,list) or not all(isinstance(c,str) for c in caps) or set(caps)-CAPABILITIES:
         error('unknown or missing required capabilities')
     needed=set()
+    if 'configuration' in m:
+        from mod_options import validate
+        validate(m['configuration']);needed.add('mod-options')
+        if any('useOperations' in rule for rule in m['configuration'].values()):error('option useOperations requires variants and operationSets')
     if 'variantSettings' in m:
         from mod_variants import validate
         validate(m['variantSettings']);needed.add('variant-settings')
@@ -157,9 +218,27 @@ def validate_manifest(m):
     def payload(name):
         safe_path(name)
         if name not in files:error('undeclared payload '+name)
+    def archive_entry(op):
+        safe_path(op['archive']);safe_path(op['asset'])
+        if '/' in op['archive'] or not op['archive'].lower().endswith('.pak'):error('archive must be a flat PAK name')
+        if type(op.get('index')) is not int or op['index']<0:error('invalid archive index')
     for op in operations:
         if not isinstance(op,dict) or op.get('kind') not in KINDS:error('unsupported operation')
         kind=op['kind'];needed.add(KINDS[kind])
+        if kind=='localized_strings':
+            # Texts of one entry's igLocalizedStringData objects; packages changing different
+            # texts of the same entry compose, so there is no patched checksum.
+            if set(op)!={'kind','archive','asset','index','original_sha256','strings'}:
+                error('localized_strings needs exactly archive, asset, index, original_sha256 and strings')
+            archive_entry(op);hash_string(op['original_sha256'])
+            strings=op['strings']
+            if not isinstance(strings,dict) or not strings:error('strings must be a nonempty object')
+            for name,fields in strings.items():
+                if not isinstance(name,str) or not name or not isinstance(fields,dict) or not fields:error('invalid localized string object')
+                for field,text in fields.items():
+                    if not isinstance(field,str) or not field or not isinstance(text,str) or '\0' in text or len(text)>4000:
+                        error('invalid localized string '+name)
+            continue
         required={'kind','original_sha256','patched_sha256'}|({'archive','asset','index'} if kind=='archive_asset' else {'target'})
         if kind=='shader_position_scale':required.add('factor')
         if not required<=set(op):error('missing operation fields: '+', '.join(sorted(required-set(op))))
@@ -168,10 +247,7 @@ def validate_manifest(m):
         if kind=='shader_position_scale':permitted={'kind','target','original_sha256','patched_sha256','factor'}
         if set(op)-permitted:error('unknown operation fields')
         hash_string(op.get('patched_sha256'))
-        if kind=='archive_asset':
-            safe_path(op['archive']);safe_path(op['asset'])
-            if '/' in op['archive'] or not op['archive'].lower().endswith('.pak'):error('archive must be a flat PAK name')
-            if type(op.get('index')) is not int or op['index']<0:error('invalid archive index')
+        if kind=='archive_asset':archive_entry(op)
         else:
             safe_path(op['target'])
             if kind=='game_file' and (op['target'].casefold()=='eboot.bin' or op['target'].casefold().startswith(('sce_sys/','sce_module/'))):
@@ -197,10 +273,11 @@ def validate_manifest(m):
                 if type(offset) is not int or offset<0 or not a or len(a)!=len(b):error('invalid delta range')
                 if any(offset<end and start<offset+len(a) for start,end in spans):error('overlapping delta runs')
                 spans.append((offset,offset+len(a)))
+    from mod_options import patch_paths
     patches=m.get('patches',[])
     if not isinstance(patches,list):error('patches must be a list')
-    for path in patches:payload(path)
-    if patches:needed.add('xml-patches')
+    for path in patches+patch_paths(m):payload(path)
+    if patches or patch_paths(m):needed.add('xml-patches')
     if 'code-signatures' in m.get('requiresCapabilities',[]):needed.add('code-signatures')
     # Whole archives remain native IGA PAKs; the container format is unchanged.
     for path in files:
@@ -220,11 +297,14 @@ def validate_folder(root):
         if p.stat().st_size!=record['bytes'] or sha(p)!=record['sha256']:error('file checksum/size mismatch: '+record['file'])
     if (root/MARKER).read_bytes()!=MARKER_CONTENT:error('invalid old-loader marker')
     patch_paths=set(p for _,flat in expanded_variants(m) for p in flat.get('patches',[]))
+    from mod_options import patch_paths as option_patch_paths
+    patch_paths.update(option_patch_paths(m))
     for name in patch_paths:
         data=under(root,name).read_bytes()
         if len(data)>8*1024**2 or b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():error('unsupported XML declarations/size')
         xml=ET.fromstring(data);ids=[n.text for n in xml.findall('./TitleID/ID')]
-        if ids!=['CUSA13795'] or not list(xml.iter('Metadata')):error('XML must target CUSA13795 and contain Metadata')
+        if ids not in (['CUSA13795'],['CUSA14876']) or not list(xml.iter('Metadata')):
+            error('XML must target exactly one supported CTR edition (CUSA13795 or CUSA14876) and contain Metadata')
         for meta in xml.iter('Metadata'):
             if meta.get('AppVer')!='01.21' or meta.get('AppElf')!='eboot.bin' or not list(meta.iter('Line')):
                 error('XML metadata must target eboot.bin 01.21 and contain writes')
