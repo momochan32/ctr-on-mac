@@ -43,6 +43,28 @@ static void inject(const char *path, const char *tokens) {
     usleep(25000);
 }
 
+/* Exercise the game's open/read path, not just SDL's controller assignment. */
+static void check_player_input(const SDL_JoystickID *ids, int count) {
+    for (int p=1;p<count;++p) {
+        assert(pad_open(p+1,0,0,NULL)==p+1);
+        assert(pad_open(p+1,0,0,NULL)==ERR_ALREADY_OPENED);
+    }
+    for (int player=0;player<count;++player) {
+        SDL_Joystick *stick=SDL_OpenJoystick(ids[player]);
+        assert(stick && SDL_SetJoystickVirtualButton(stick,SDL_GAMEPAD_BUTTON_DPAD_UP,true));
+        SDL_UpdateJoysticks(); SDL_UpdateGamepads();
+        for (int p=0;p<count;++p) {
+            PadData data;
+            assert(pad_read(p+1,&data,1)==1);
+            assert(data.connected && data.buttons==(p==player ? BTN_UP : 0));
+        }
+        assert(SDL_SetJoystickVirtualButton(stick,SDL_GAMEPAD_BUTTON_DPAD_UP,false));
+        SDL_UpdateJoysticks(); SDL_UpdateGamepads();
+        SDL_CloseJoystick(stick);
+    }
+    for (int p=1;p<count;++p) assert(pad_close(p+1)==0);
+}
+
 int main(void) {
     char path[]="/tmp/bbport-pad-test-XXXXXX";
     int fd=mkstemp(path);
@@ -62,6 +84,9 @@ int main(void) {
     /* Only the virtual test controller is a gamepad, whatever is plugged in. */
     SDL_SetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT,"0x1d50/0x6189");
     assert(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMEPAD));
+    /* Keep an unfocused window alive so every virtual-pad check exercises background input. */
+    SDL_Window *background_window=SDL_CreateWindow("Background controller test",320,240,SDL_WINDOW_HIDDEN);
+    assert(background_window && !SDL_GetKeyboardFocus());
     pad_thread_state=-1; /* no bb:pad thread: each read samples first, so the asserts below see it */
     assert(pad_init()==0 && pad_open(1,0,0,NULL)==1);
     PadData data;
@@ -161,7 +186,7 @@ int main(void) {
         for (int bound=2;bound<=4;++bound) {
             FILE *f=fopen(config,"w");
             assert(f);
-            fprintf(f,"port.2=%s\n",guid);
+            fprintf(f,"split_auto=0\nport.2=%s\n",guid);
             if (bound>=3) fprintf(f,"port.3=%s\n",guid);
             if (bound==4) fprintf(f,"port.4=%s\n",guid);
             fclose(f);
@@ -214,6 +239,9 @@ int main(void) {
                     SDL_CloseJoystick(other);
                 }
             }
+            SDL_JoystickID assigned[PORTS]={p1};
+            for (int p=1;p<bound;++p) assigned[p]=SDL_GetGamepadID(ports[p].pad);
+            check_player_input(assigned,bound);
         }
         const SDL_JoystickID p1_before=SDL_GetGamepadID(gamepad);
         const SDL_JoystickID p2_before=SDL_GetGamepadID(ports[1].pad);
@@ -299,30 +327,102 @@ int main(void) {
                 used[p]=SDL_GetGamepadID(ports[p].pad);
                 for (int q=0;q<p;++q) assert(used[p]!=used[q]);
             }
+            check_player_input(used,connected);
+            for (int p=connected;p<PORTS;++p) assert(pad_open(p+1,0,0,NULL)==ERR_INVALID_ARG);
         }
         FILE *f=fopen(config,"w"); assert(f); fputs("split_auto=0\n",f); fclose(f);
         config_checked=0; memset(&config_mtime,0,sizeof config_mtime);
         current_gamepad();
         update_port_presence();
         assert(!split_auto);
-        for (int p=1;p<PORTS;++p) assert(!ports[p].pad && !ports[p].present);
+        for (int p=1;p<PORTS;++p) {
+            assert(!ports[p].pad && !ports[p].present);
+            assert(pad_open(p+1,0,0,NULL)==ERR_INVALID_ARG);
+        }
         SDL_CloseGamepad(gamepad); gamepad=NULL;
         for (int i=0;i<4;++i) assert(SDL_DetachVirtualJoystick(same[i]));
     }
-    /* A pad thread stuck in SDL (device detection): the game reads its last sample until that is
-     * PAD_STALE_US old, then idle gamepads, without waiting. */
+    /* A pad thread stuck in SDL (device detection): the game retains held buttons on every port,
+     * without inventing a release/press during short stalls, but expires after 3 s. */
     {
         pad_thread_state=1; /* as if the thread ran: reads only copy `snap` */
-        pad_neutral(&snap[0].data);
-        snap[0].data.buttons=BTN_CROSS; snap[0].has_pad=1; snap[0].keyboard=1;
-        snap_at=now_us();
-        assert(pad_read_state(1,&data)==0 && (data.buttons & BTN_CROSS));
-        snap_at=now_us()-PAD_STALE_US-1000;
-        assert(pad_read_state(1,&data)==0 && !(data.buttons & BTN_CROSS) && data.left_x==128 && stale_noted);
-        snap_at=now_us();
-        assert(pad_read_state(1,&data)==0 && (data.buttons & BTN_CROSS) && !stale_noted);
+        for (int p=0;p<PORTS;++p) {
+            pad_neutral(&snap[p].data);
+            snap[p].data.buttons=BTN_R1;
+            snap[p].data.left_x=200;
+            snap[p].has_pad=1;
+            snap[p].keyboard=0;
+            snap_at=now_us();
+            sample_host_from(&data,p);
+            assert(data.buttons==BTN_R1 && data.left_x==200);
+            const uint64_t stalls[]={PAD_STALE_US+1000,300000,500000};
+            for (size_t i=0;i<sizeof stalls/sizeof *stalls;++i) {
+                snap_at=now_us()-stalls[i];
+                sample_host_from(&data,p);
+                assert(data.buttons==BTN_R1 && data.left_x==200 && stale_noted);
+                assert(!expired_noted);
+            }
+            snap_at=now_us();
+            sample_host_from(&data,p);
+            assert(data.buttons==BTN_R1 && !stale_noted);
+            snap_at=now_us()-2000000u;
+            sample_host_from(&data,p);
+            assert(data.buttons==BTN_R1 && data.left_x==200 && !expired_noted);
+            snap_at=now_us()-PAD_EXPIRE_US;
+            sample_host_from(&data,p);
+            assert(!data.buttons && data.left_x==128 && expired_noted);
+            /* The safety fallback must not overwrite the worker's snapshot. */
+            assert(snap[p].data.buttons==BTN_R1);
+            snap_at=now_us();
+            sample_host_from(&data,p);
+            assert(!data.buttons && data.left_x==200 && !expired_noted);
+            /* Recovery cannot synthesize a second hop; a new physical press still works. */
+            sample_host_from(&data,p);
+            assert(!data.buttons);
+            snap[p].data.buttons=BTN_R1|BTN_CROSS;
+            sample_host_from(&data,p);
+            assert(data.buttons==BTN_CROSS); /* only the previously held button is blocked */
+            const int other=(p+1)%PORTS;
+            pad_neutral(&snap[other].data);
+            snap[other].data.buttons=BTN_R1;
+            snap[other].keyboard=0;
+            sample_host_from(&data,other);
+            assert(data.buttons==BTN_R1); /* timeout recovery belongs to one port */
+            snap[p].data.buttons=0;
+            sample_host_from(&data,p);
+            assert(!data.buttons && !rearm_buttons[p]);
+            snap[p].data.buttons=BTN_R1;
+            sample_host_from(&data,p);
+            assert(data.buttons==BTN_R1);
+            capture=1;
+            sample_host_from(&data,p);
+            assert(!data.buttons && data.left_x==128);
+            capture=0;
+            /* A real disconnect published by the worker releases the held input. */
+            pad_neutral(&snap[p].data);
+            snap[p].has_pad=0;
+            sample_host_from(&data,p);
+            assert(!data.buttons && data.left_x==128);
+            snap[p].data.buttons=BTN_L2|BTN_R2|BTN_TOUCHPAD;
+            snap[p].data.l2=snap[p].data.r2=255;
+            touch_click(&snap[p].data,0);
+            snap_at=now_us()-PAD_EXPIRE_US;
+            sample_host_from(&data,p);
+            assert(!data.buttons && !data.l2 && !data.r2 && !data.touch_count);
+            snap_at=now_us();
+            sample_host_from(&data,p);
+            assert(!data.buttons && !data.l2 && !data.r2 && !data.touch_count);
+            pad_neutral(&snap[p].data);
+            sample_host_from(&data,p);
+            assert(!rearm_buttons[p]);
+            snap[p].data.buttons=BTN_R1;
+            snap_at=0;
+            sample_host_from(&data,p);
+            assert(!data.buttons && data.left_x==128);
+        }
         pad_thread_state=-1;
     }
+    SDL_DestroyWindow(background_window);
     SDL_Quit();
     unlink(path);
     unlink(config);

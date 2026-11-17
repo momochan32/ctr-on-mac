@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cstdlib>
 #include <deque>
 
 #include <condition_variable>
@@ -66,6 +68,11 @@ public:
         return window;
     }
 
+    /// bbport: the native Vulkan renderer (shim/bbport_native_vk.cpp) shares this device
+    const Instance& GetInstance() const {
+        return instance;
+    }
+
     Rasterizer& GetRasterizer() const {
         return *rasterizer.get();
     }
@@ -80,22 +87,42 @@ public:
         }
         swapchain.SetHDR(enable);
         pp_settings.hdr = enable ? 1 : 0;
+        // bbport: BB_HDR_PEAK=nits fits the game's PQ picture to the display, BB_HDR_GAIN scales it
+        static const float peak = [] {
+            const char* v = std::getenv("BB_HDR_PEAK");
+            return v ? std::max(0.0f, float(std::atof(v))) : 0.0f;
+        }();
+        static const float gain = [] {
+            const char* v = std::getenv("BB_HDR_GAIN");
+            const float g = v ? float(std::atof(v)) : 1.0f;
+            return g > 0.0f ? g : 1.0f;
+        }();
+        pp_settings.hdr_peak = peak;
+        pp_settings.hdr_gain = gain;
     }
 
-    VideoCore::Image& RegisterVideoOutSurface(
-        const Libraries::VideoOut::BufferAttributeGroup& attribute, VAddr cpu_address) {
+    void RegisterVideoOutSurface(const Libraries::VideoOut::BufferAttributeGroup& attribute,
+                                 VAddr cpu_address) {
         vo_buffers_addr.emplace_back(cpu_address);
+        if (!texture_cache) {
+            return; // lab BB_VK_NATIVE_ONLY: no Rasterizer
+        }
         auto desc = VideoCore::TextureCache::ImageDesc{attribute, cpu_address};
-        const auto image_id = texture_cache.FindImage(desc);
-        auto& image = texture_cache.GetImage(image_id);
+        const auto image_id = texture_cache->FindImage(desc);
+        auto& image = texture_cache->GetImage(image_id);
         image.usage.vo_surface = 1u;
-        return image;
     }
 
     bool IsVideoOutSurface(const AmdGpu::ColorBuffer& color_buffer) const;
 
     Frame* PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& attribute,
                         VAddr cpu_address);
+
+    /// lab BB_VK_OWN_PRESENT: the native renderer's image of the display buffer, post processed
+    /// into a frame with the presenter's own command buffer (any thread but the swap thread; no
+    /// shadPS4 scheduler or GPU thread). nullptr when the native renderer has no such image.
+    Frame* PrepareNativeFrame(const Libraries::VideoOut::BufferAttributeGroup& attribute,
+                              VAddr cpu_address);
 
     Frame* PrepareBlankFrame(bool present_thread);
 
@@ -126,10 +153,11 @@ private:
     std::deque<u64> recent_frame_ticks; ///< bbport: BB_FRAMES_AHEAD bound (PrepareFrame)
     Scheduler present_scheduler;
     Scheduler flip_scheduler;
+    Scheduler native_scheduler; ///< lab: PrepareNativeFrame only
     Swapchain swapchain;
     Runtime runtime;
     std::unique_ptr<Rasterizer> rasterizer;
-    VideoCore::TextureCache& texture_cache;
+    VideoCore::TextureCache* texture_cache; ///< null with BB_VK_NATIVE_ONLY (no Rasterizer)
     vk::UniqueCommandPool command_pool;
     std::vector<Frame> present_frames;
     std::queue<Frame*> free_queue;

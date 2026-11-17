@@ -68,6 +68,8 @@ BB_RUNTIME_PREFIX=$runtime BB_PY_VER=3.13 BB_PY_FRAMEWORK=$runtime/Library/Frame
 # The app's version (Info.plist): what the launcher compares with the latest GitHub release.
 version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" packaging/macos/Info.plist)
 printf 'v%s-macos\n' "$version" > "$port/VERSION"
+# The OCTR release this build is based on: the game's login tells the server (run.sh).
+git describe --tags --abbrev=0 --match 'v0.*' > "$port/OCTR_VERSION"
 cp README.md README.id.md "$stage/"
 mkdir -p "$stage/docs" && cp -R docs/macos "$stage/docs/"
 # Signing: every executable of the port and then the app itself (BB_SIGN_IDENTITY: a Developer ID

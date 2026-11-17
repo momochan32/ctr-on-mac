@@ -7,8 +7,9 @@ utf8, utf16); pattern ("mask") patches are rejected and the patch is skipped who
 A line may carry Signature="41 8b ?? ..." (hex bytes, ?? for any byte) and SignatureOffset (where
 the write goes, from the signature's start). The write goes to Address when the signature matches
 there (the 1.21 build for firmware 5.05); otherwise to the one place in the executable where it
-matches (the 6.72+ build, whose code sits at other addresses). No match, or more than one: the
-patch is skipped whole, with a log line.
+matches (the 6.72+ build, whose code sits at other addresses). A site that already holds the
+patch's bytes counts as a match (an executable shipped with the patch applied). No match, or more
+than one: the patch is skipped whole, with a log line.
 
 ExpectedSHA256="..." verifies the original bytes across the entire write length in a
 file-backed load segment. It does not search/relocate fixed-address injected code.
@@ -114,6 +115,14 @@ def render_plan(settings):
     res=render_res(s)
     if res is None:
         return None
+    layout=s.get('layout_internal')
+    if res=='1080' and layout in RENDER_RESOLUTIONS and layout!='1080':
+        # An aspect ratio patch writes the display size itself (WxH at 0x17a9d61), but the 3D
+        # targets are 1920x1080 times the scale getter at 0x13e2eb0, which returns 1.0 on the base
+        # path. So the scene is made larger as at 16:9: the Pro path with the scale, and without
+        # its doubling of the output, which would double the layout's size.
+        return dict(label=f'{layout}p {s.get("aspect_ratio", "ultrawide").replace("x", ":")}',scale=RENDER_SCALES.get(layout),pro=True,single=True,
+                    heap=layout=='2160')
     if res=='1080':
         return dict(label='1080p',scale=None,pro=False,single=False,heap=False)
     return dict(label=f'{res}p',scale=RENDER_SCALES.get(res),pro=True,single=res in ('480','720'),
@@ -165,7 +174,7 @@ def render_patches(settings):
 # EOctaneHiddenObjectGameplayModes: eOOGM_None 0, eOOGM_SpookyGhost 1, eOOGM_GoldenWumpa 2 (the
 # game itself swaps golden Wumpa for ghosts on Twilight Tour). BB_THEME (run.py: the season the
 # online server announces) or bbport.ini theme= picks it.
-THEME_VALUES={'default':0,'halloween':1,'golden':2}
+THEME_VALUES={'default':0,'halloween':1,'golden':2,'christmas':0}  # christmas: the title screen's (season_art.py)
 THEME_SIGNATURE='49 8b 87 30 01 00 00 4c 89 ef 8b 70 18 e8'
 
 
@@ -215,14 +224,49 @@ def read_settings(path):
     return settings
 
 
-def eboot_segments(elf):
-    """(start, end) of eboot.elf's load segments: patches must land inside one."""
+# Mod code area: the executable segment is mapped up to the next segment (the USA/EU 1.21 code
+# ends at 0x233c078 and the next segment starts at 0x2400000: about 780 KB of zeros), so patch mods
+# can place their code there instead of squeezing it into the code segment's last padding.
+MOD_CODE_AREA_MAX=1024*1024
+
+
+def code_extension(loads):
+    """End of the executable load segment once extended to the next load segment, from
+    [(type, flags, vaddr, memsz)] (types 1 and 0x61000010); None when there is no such gap."""
+    page=0x4000
+    for kind,flags,vaddr,memsz in loads:
+        if kind!=1 or not flags&1: continue
+        end=vaddr+memsz
+        following=[v for k,_,v,_ in loads if k in (1,0x61000010) and v>=end]
+        if not following: return None
+        limit=min(following)
+        if limit-end>MOD_CODE_AREA_MAX or limit%page: return None
+        return limit
+    return None
+
+
+def program_loads(elf):
+    """[(type, flags, vaddr, memsz)] of eboot.elf's program headers."""
     phoff,=struct.unpack_from('<Q',elf,0x20)
     phentsize,phnum=struct.unpack_from('<HH',elf,0x36)
-    segments=[]
+    out=[]
     for i in range(phnum):
-        kind,_,_,vaddr,_,_,memsz,_=struct.unpack_from('<IIQQQQQQ',elf,phoff+i*phentsize)
-        if kind==1: segments.append((vaddr,vaddr+memsz))
+        kind,flags,_,vaddr,_,_,memsz,_=struct.unpack_from('<IIQQQQQQ',elf,phoff+i*phentsize)
+        out.append((kind,flags,vaddr,memsz))
+    return out
+
+
+def eboot_segments(elf):
+    """(start, end) of eboot.elf's load segments: patches must land inside one. The executable one
+    reaches up to the next segment (code_extension)."""
+    loads=program_loads(elf)
+    extended=code_extension(loads)
+    segments=[]
+    for kind,flags,vaddr,memsz in loads:
+        if kind!=1: continue
+        end=vaddr+memsz
+        if flags&1 and extended: end=extended
+        segments.append((vaddr,end))
     return segments
 
 
@@ -365,16 +409,27 @@ def cutscene_state(out):
     return max(meta)+8,by_name['_activeCutsceneData'],by_name['_activeDesignerCutscene'],flyby
 
 
-def signature_regex(text):
+def signature_regex(text, written=None):
+    """written: (offset in the signature, bytes) that replace the signature's bytes there, for an
+    executable that already carries the patch."""
     tokens=text.split()
     if not tokens: raise ValueError('empty signature')
-    return re.compile(b''.join(b'.' if t=='??' else re.escape(bytes([int(t,16)])) for t in tokens),re.S)
+    parts=[b'.' if t=='??' else re.escape(bytes([int(t,16)])) for t in tokens]
+    if written:
+        at,data=written
+        parts+=[b'']*max(0,at+len(data)-len(parts))
+        for i,byte in enumerate(data): parts[at+i]=re.escape(bytes([byte]))
+    return re.compile(b''.join(parts),re.S)
 
 
 def locate(line, offset, elf):
-    """The image offset a signed line writes to (see the module docstring)."""
-    rx=signature_regex(line.get('Signature'))
+    """The image offset a signed line writes to (see the module docstring). An executable that
+    already carries the patch (some 6.72+ builds of 1.21 ship with 60 FPS and no motion blur)
+    matches too: the signature with the patch's own bytes in place of the ones it replaces."""
+    text=line.get('Signature')
     shift=int(line.get('SignatureOffset','0'),0)
+    rx=re.compile(b'(?:'+signature_regex(text).pattern+b')|(?:'+
+                  signature_regex(text,(shift,encode(line))).pattern+b')',re.S)
     loads=load_segments(elf)
     def at(vaddr):
         for start,pos,size in loads:
@@ -453,14 +508,29 @@ def external_selection(found, config, ini=None):
     # With render_res the Pro mode follows it (run.py): 1080p runs the base PS4 path, so the
     # 1080p Pro patch is never needed (on the base path its flipped branch would take the Pro one).
     if render_plan(ini): enabled.discard(pro_1080p); disabled.add(pro_1080p)
+    # Both renderers switch blur shaders live; retain camera velocities for re-enabling it.
+    blur = GAME_PATCH_KEYS['patch_no_motion_blur']
+    if any(selection_key(key) == blur and meta.get('AppVer') == '01.21' for key, _, meta in found):
+        enabled.discard(blur)
+        disabled.add(blur)
     return [(key,path,meta) for key,path,meta in found
             if selection_key(key) in enabled
             or (selection_key(key) not in disabled and meta.get('isEnabled','false').lower()=='true')]
 
 
-def compile_external(selected, segments, elf=None, strict=False, require_verification=False):
+def optional_game_patch(key):
+    """One of the bundled community game patches (GAME_PATCH_KEYS: 60 FPS, motion blur, ...),
+    under any edition's file name. Nothing a mod ships depends on them, so one whose code is not
+    found in this executable (another build of the update) is skipped even in a mod session."""
+    return selection_key(key) in GAME_PATCH_KEYS.values()
+
+
+def compile_external(selected, segments, elf=None, strict=False, require_verification=False,
+                     applied=None):
     """Writes of the selected patches; a patch with unsupported lines is skipped whole. elf (the
-    eboot.elf bytes) is needed for lines with a Signature."""
+    eboot.elf bytes) is needed for lines with a Signature. strict: a skipped patch is an error,
+    except an optional game patch (optional_game_patch), and so are overlapping writes. applied:
+    a list that gets the key of every patch that was applied."""
     writes,claims=[],[]
     for key,_,meta in selected:
         try:
@@ -487,11 +557,19 @@ def compile_external(selected, segments, elf=None, strict=False, require_verific
                     for start,pos,size in load_segments(elf):
                         if start<=offset and offset+len(data)<=start+size:
                             original=elf[pos+offset-start:pos+offset-start+len(data)];break
+                    # The mod code area starts as zeros. Anything else without file bytes (a segment's
+                    # zero fill) is not code a signature can vouch for: it stays a mismatch.
+                    loads=program_loads(elf)
+                    area_end=code_extension(loads)
+                    area_start=next((vaddr+memsz for kind,flags,vaddr,memsz in loads if kind==1 and flags&1),None)
+                    if original is None and area_end and area_start<=offset and offset+len(data)<=area_end:
+                        original=bytes(len(data))
                     if original is None or hashlib.sha256(original).hexdigest()!=expected:
                         raise ValueError('executable code signature mismatch at '+str(line.get('Address')))
                 ours.append((offset,data))
         except ValueError as error:
-            if strict:raise ValueError(f'Cannot apply enabled mod patch {key}: {error}') from error
+            if strict and not optional_game_patch(key):
+                raise ValueError(f'Cannot apply enabled mod patch {key}: {error}') from error
             print(f'Patches: skipped {key}: {error}',file=sys.stderr)
             continue
         # Two patches writing the same bytes: the later one's bytes win, and neither works as
@@ -504,8 +582,24 @@ def compile_external(selected, segments, elf=None, strict=False, require_verific
                     break
         claims+=[(offset,offset+len(data),key) for offset,data in ours]
         writes+=ours
+        if applied is not None:applied.append(key)
         print(f'Patches: external {key} ({len(ours)} writes)')
     return writes
+
+
+APPLIED_FILE='patches-applied.json'
+
+
+def applied_game_patches(out):
+    """The bbport.ini keys (GAME_PATCH_KEYS) of the game patches the last compile applied, from
+    out/patches-applied.json; None when there is no such file (an older compile)."""
+    try:
+        keys=json.loads((Path(out)/APPLIED_FILE).read_text(encoding='utf-8'))
+    except (OSError,ValueError):
+        return None
+    if not isinstance(keys,list):return None
+    applied={selection_key(k) for k in keys if isinstance(k,str)}
+    return {ini for ini,key in GAME_PATCH_KEYS.items() if key in applied}
 
 
 def write_blob(out, writes):
@@ -527,6 +621,7 @@ def main():
     p.add_argument('--app-version',default=APP_VERSION)
     p.add_argument('--title-id',default=TITLE_ID,help='the game (patch files naming other ids are skipped)')
     p.add_argument('--out',type=Path,default=root/'out')
+    p.add_argument('--boot-dir',type=Path,help='verified boot inputs (default: --out for standalone tools)')
     p.add_argument('--settings',type=Path,default=root/'bbport.ini')
     p.add_argument('--external-only',action='store_true',help='accepted for older callers (the only mode)')
     p.add_argument('--print-cutscene',action='store_true',
@@ -536,26 +631,30 @@ def main():
     p.add_argument('--print-plan',action='store_true',
                    help='print "PRO HEAP LABEL" of the render plan (run.sh), or nothing, and exit')
     a=p.parse_args()
+    boot = a.boot_dir if a.boot_dir is not None else a.out
     if a.print_cutscene:
-        found=cutscene_state(a.out)
+        found=cutscene_state(boot)
         if found: print(f'{found[0]:#x} {found[1]:#x} {found[2]:#x}'+(f' {found[3]:#x}' if found[3] is not None else ''))
         return
     if a.print_frontend:
-        found=frontend_state(a.out)
+        found=frontend_state(boot)
         if found: print(' '.join(f'{v:#x}' for v in found))
         return
     if a.print_plan:
         plan=render_plan(read_settings(a.settings))
         if plan: print(int(plan['pro']),int(plan['heap']),plan['label'])
         return
-    elf=(a.out/'eboot.elf').read_bytes()
+    elf=(boot/'eboot.elf').read_bytes()
     segments=eboot_segments(elf)
     found=all_external_patches(a.patches_dir or [root/'patches'],a.app_version,a.title_id)
     settings=read_settings(a.settings)
+    applied=[]
     writes=compile_external(external_selection(found,a.patches_config,settings)+render_patches(settings)
                             +theme_patches(settings)+end_race_patches(),
-                            segments,elf,strict=a.strict_overlap)
+                            segments,elf,strict=a.strict_overlap,applied=applied)
     write_blob(a.out,writes)
+    # run.py reads it: the 60 FPS vblank only when the 60 FPS patch is really in.
+    (a.out/APPLIED_FILE).write_text(json.dumps(applied),encoding='utf-8')
     print(f'Patches: {len(writes)} writes from {len(found)} available patches')
 
 

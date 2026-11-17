@@ -12,6 +12,8 @@
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderdoc.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
+#include "bbport_native_vk.h"
+#include "bbport_native_memory.h"
 #include "bbport_overlay.h"
 #include "bbport_timeline.h"
 #include "video_core/renderer_vulkan/vk_temporal_upscaler.h"
@@ -26,6 +28,7 @@
 #include <chrono>
 #include <cmath>
 #include <csetjmp>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <filesystem>
@@ -43,6 +46,47 @@
 #endif
 
 namespace Vulkan {
+
+namespace {
+/// bbport: where the presenter's time goes, printed every 5 seconds ("Presenter: per second").
+/// The swap thread (bb:Present) took 93% of a core at 327 FPS on an RTX 5080 with the native
+/// renderer while its GPU was busy 28% of the time: this tells acquire, recording, submission and
+/// the driver's present apart, and how long flips waited for a free presenter frame.
+struct PresentStats {
+    std::atomic<u64> acquire_ns{0}, record_ns{0}, submit_ns{0}, present_ns{0}, frame_wait_ns{0},
+        presents{0}, frame_waits{0};
+};
+PresentStats present_stats;
+
+u64 NsSince(std::chrono::steady_clock::time_point t0) {
+    return u64(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() -
+                                                                     t0)
+                   .count());
+}
+
+void ReportPresentStats(u32 images, vk::PresentModeKHR mode) {
+    using Clock = std::chrono::steady_clock;
+    static Clock::time_point last = Clock::now();
+    const auto now = Clock::now();
+    const double s = std::chrono::duration<double>(now - last).count();
+    if (s < 5.0) {
+        return;
+    }
+    last = now;
+    const auto ms = [s](std::atomic<u64>& v) { return double(v.exchange(0)) / 1e6 / s; };
+    const double presents = double(present_stats.presents.exchange(0)) / s;
+    const double acquire = ms(present_stats.acquire_ns), record = ms(present_stats.record_ns),
+                 submit = ms(present_stats.submit_ns), present = ms(present_stats.present_ns),
+                 waited = ms(present_stats.frame_wait_ns);
+    const double waits = double(present_stats.frame_waits.exchange(0)) / s;
+    std::printf("Presenter: per second: %.1f presents (%s, %u images); acquire %.0f ms, record %.0f "
+                "ms, submit %.0f ms, driver present %.0f ms; flips waited %.0f ms for a free frame "
+                "(%.1f/s)\n",
+                presents, vk::to_string(mode).c_str(), images, acquire, record, submit, present,
+                waited, waits);
+    std::fflush(stdout);
+}
+} // namespace
 
 bool CanBlitToSwapchain(const vk::PhysicalDevice physical_device, vk::Format format) {
     const vk::FormatProperties props{physical_device.getFormatProperties(format)};
@@ -155,9 +199,17 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
       instance{window, EmulatorSettings.GetGpuId(), EmulatorSettings.IsVkValidationEnabled(),
                EmulatorSettings.IsVkCrashDiagnosticEnabled()},
       draw_scheduler{instance, true}, present_scheduler{instance}, flip_scheduler{instance},
+      native_scheduler{instance},
       swapchain{instance, window}, runtime{instance, draw_scheduler},
-      rasterizer{std::make_unique<Rasterizer>(instance, draw_scheduler, runtime, liverpool)},
-      texture_cache{rasterizer->GetTextureCache()} {
+      // lab BB_VK_NATIVE_ONLY: no Rasterizer (texture and buffer caches, page manager, draw
+      // pipeline); the native renderer tracks guest memory itself (BbMem)
+      rasterizer{BbMem::NativeOnly()
+                     ? nullptr
+                     : std::make_unique<Rasterizer>(instance, draw_scheduler, runtime, liverpool)},
+      texture_cache{rasterizer ? &rasterizer->GetTextureCache() : nullptr} {
+    if (!rasterizer) {
+        BbMem::Install();
+    }
     const u32 num_images = swapchain.GetImageCount();
     const vk::Device device = instance.GetDevice();
 
@@ -188,6 +240,7 @@ Presenter::~Presenter() {
     draw_scheduler.Finish();
     present_scheduler.Finish();
     flip_scheduler.Finish();
+    native_scheduler.Finish();
     Check(draw_scheduler.CommandBuffer().reset());
     Check(present_scheduler.CommandBuffer().reset());
     Check(flip_scheduler.CommandBuffer().reset());
@@ -348,12 +401,26 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     BbTimeline::Note(BbTimeline::PipeTask, 4, draw_scheduler.CurrentTick());
     // bbport: scaled upscaler presets: the output-size display buffer drawn by the port.
     TemporalUpscaler::Display display{};
-    const bool upscaled = rasterizer->GetUpscaler().DisplayOverride(cpu_address, display);
+    // bbport: BB_VK_SHOW=1: the native renderer's image of this buffer (General layout); viewed
+    // like the upscaler's display image, and handed back in General layout after the passes.
+    bool native = false;
+    {
+        std::uint64_t image = 0;
+        std::uint32_t format = 0, width = 0, height = 0;
+        native = BbNativeVk::Display(
+            cpu_address, std::uint32_t(GetFrameViewFormat(attribute.attrib.pixel_format)), &image,
+            &format, &width, &height);
+        if (native) {
+            display = {vk::Image(reinterpret_cast<VkImage>(image)), vk::Format(format), width, height};
+        }
+    }
+    const bool upscaled =
+        native || rasterizer->GetUpscaler().DisplayOverride(cpu_address, display);
     VideoCore::ImageId image_id{};
     if (!upscaled) {
         auto desc = VideoCore::TextureCache::ImageDesc{attribute, cpu_address};
-        image_id = texture_cache.FindImage(desc);
-        texture_cache.UpdateImage(image_id);
+        image_id = texture_cache->FindImage(desc);
+        texture_cache->UpdateImage(image_id);
     }
 
     Frame* frame = GetRenderFrame();
@@ -383,7 +450,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         image_view = Check(device.createImageView({
             .image = display.image,
             .viewType = vk::ImageViewType::e2D,
-            .format = view_info.format,
+            .format = native ? display.format : view_info.format,
             .components = {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
                            vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eOne},
             .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
@@ -404,7 +471,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
             cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &to_read});
         });
     } else {
-        auto& image = texture_cache.GetImage(image_id);
+        auto& image = texture_cache->GetImage(image_id);
         image_view = *image.FindView(view_info).image_view;
         image_size = vk::Extent2D{image.info.size.width, image.info.size.height};
         // bbport: BB_PRESENT_DUMP_TRIGGER for the game's own display buffer too.
@@ -466,6 +533,21 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
             Breadcrumbs::Mark(cmdbuf, stream, pp_crumb, true);
         }
     });
+    if (native) {
+        draw_scheduler.Record([image = display.image](vk::CommandBuffer cmdbuf) {
+            const vk::ImageMemoryBarrier2 back{
+                .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+                .srcAccessMask = vk::AccessFlagBits2::eShaderRead,
+                .dstStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+                .dstAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+                .oldLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+                .newLayout = vk::ImageLayout::eGeneral,
+                .image = image,
+                .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
+            };
+            cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &back});
+        });
+    }
 
     // Flush frame creation commands.
     BbStats::frame_number.fetch_add(1, std::memory_order_relaxed); // bbport: game frames shown
@@ -495,6 +577,88 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
             }
         }
     }
+    return frame;
+}
+
+Frame* Presenter::PrepareNativeFrame(const Libraries::VideoOut::BufferAttributeGroup& attribute,
+                                     VAddr cpu_address) {
+    std::uint64_t native_image = 0;
+    std::uint32_t format = 0, width = 0, height = 0;
+    const vk::Format view_format = GetFrameViewFormat(attribute.attrib.pixel_format);
+    if (!BbNativeVk::Display(cpu_address, std::uint32_t(view_format), &native_image, &format, &width,
+                             &height)) {
+        return nullptr;
+    }
+    const vk::Image image{reinterpret_cast<VkImage>(native_image)};
+    expected_ratio = static_cast<float>(width) / static_cast<float>(height);
+    pp_settings.srgb_input =
+        attribute.attrib.pixel_format == Libraries::VideoOut::PixelFormat::A2R10G10B10Srgb;
+
+    Frame* frame = GetRenderFrame();
+    auto& scheduler = native_scheduler;
+    const auto device = instance.GetDevice();
+    const vk::ImageView image_view = Check(device.createImageView({
+        .image = image,
+        .viewType = vk::ImageViewType::e2D,
+        .format = vk::Format(format),
+        .components = {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+                       vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eOne},
+        .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
+    }));
+    scheduler.DeferOperation([device, image_view] { device.destroyImageView(image_view); });
+
+    const vk::CommandBuffer cmdbuf = scheduler.CommandBuffer();
+    // the native renderer keeps its display images in General layout; its work on this one is
+    // finished (BbSignals runs the flip after the GPU) and submitted before this on the queue
+    const vk::ImageSubresourceRange color{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+    const std::array pre{
+        vk::ImageMemoryBarrier2{
+            .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+            .srcAccessMask = vk::AccessFlagBits2::eMemoryWrite,
+            .dstStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+            .dstAccessMask = vk::AccessFlagBits2::eShaderRead,
+            .oldLayout = vk::ImageLayout::eGeneral,
+            .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+            .image = image,
+            .subresourceRange = color,
+        },
+        vk::ImageMemoryBarrier2{
+            .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentRead,
+            .dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+            .oldLayout = vk::ImageLayout::eUndefined,
+            .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .image = frame->image,
+            .subresourceRange = color,
+        },
+    };
+    cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = u32(pre.size()), .pImageMemoryBarriers = pre.data()});
+    {
+        std::scoped_lock lock{passes_mutex};
+        const vk::Extent2D size{width, height};
+        const vk::ImageView input = fsr_pass.Render(cmdbuf, image_view, size,
+                                                    {frame->width, frame->height}, fsr_settings,
+                                                    frame->is_hdr);
+        pp_pass.Render(cmdbuf, input, size, *frame, pp_settings);
+    }
+    const vk::ImageMemoryBarrier2 back{
+        .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+        .srcAccessMask = vk::AccessFlagBits2::eShaderRead,
+        .dstStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+        .dstAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+        .oldLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+        .newLayout = vk::ImageLayout::eGeneral,
+        .image = image,
+        .subresourceRange = color,
+    };
+    cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &back});
+
+    BbStats::frame_number.fetch_add(1, std::memory_order_relaxed);
+    frame->ready_semaphore = scheduler.GetWorkSemaphore()->Handle();
+    frame->ready_tick = scheduler.CurrentTick();
+    SubmitInfo info{};
+    scheduler.Flush(info);
     return frame;
 }
 
@@ -618,7 +782,10 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         }
     }
 
-    if (!swapchain.AcquireNextImage()) {
+    auto section = std::chrono::steady_clock::now(); // bbport: timed sections (PresentStats)
+    const bool acquired_first = swapchain.AcquireNextImage();
+    present_stats.acquire_ns.fetch_add(NsSince(section), std::memory_order_relaxed);
+    if (!acquired_first) {
         bool acquired;
         {
             std::scoped_lock submit_lock{Scheduler::submit_mutex};
@@ -633,6 +800,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         }
     }
 
+    section = std::chrono::steady_clock::now();
     // Reset fence for queue submission. Do it here instead of GetRenderFrame() because we may
     // skip frame because of slow swapchain recreation. If a frame skip occurs, we skip signal
     // the frame's present fence and future GetRenderFrame() call will hang waiting for this frame.
@@ -751,6 +919,9 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         cmdbuf.endDebugUtilsLabelEXT();
     }
 
+    present_stats.record_ns.fetch_add(NsSince(section), std::memory_order_relaxed);
+    section = std::chrono::steady_clock::now();
+
     // Flush vulkan commands.
 
     // bbport: the frame's submission goes out from a recording thread (BB_ASYNC_SUBMIT); this
@@ -764,14 +935,20 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     info.AddSignal(swapchain.GetPresentReadySemaphore());
     info.AddSignal(frame->present_done);
     scheduler.Flush(info);
+    present_stats.submit_ns.fetch_add(NsSince(section), std::memory_order_relaxed);
 
     // Present to swapchain.
     {
         std::scoped_lock submit_lock{Scheduler::submit_mutex};
-        if (!swapchain.Present() && window.GetWidth() != 0 && window.GetHeight() != 0) {
+        section = std::chrono::steady_clock::now();
+        const bool presented = swapchain.Present();
+        present_stats.present_ns.fetch_add(NsSince(section), std::memory_order_relaxed);
+        if (!presented && window.GetWidth() != 0 && window.GetHeight() != 0) {
             swapchain.Recreate(window.GetWidth(), window.GetHeight());
         }
     }
+    present_stats.presents.fetch_add(1, std::memory_order_relaxed);
+    ReportPresentStats(swapchain.GetImageCount(), swapchain.GetPresentMode());
 
     free_frame();
     if (!is_reusing_frame && is_game_frame) {
@@ -782,8 +959,12 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
 Frame* Presenter::GetRenderFrame() {
     // Wait for free presentation frames
     Frame* frame;
+    const auto wait_start = std::chrono::steady_clock::now(); // bbport: PresentStats
     {
         std::unique_lock lock{free_mutex};
+        if (free_queue.empty()) {
+            present_stats.frame_waits.fetch_add(1, std::memory_order_relaxed);
+        }
         free_cv.wait(lock, [this] { return !free_queue.empty(); });
         LOG_DEBUG(Render_Vulkan, "Got render frame, remaining {}", free_queue.size() - 1);
 
@@ -812,6 +993,8 @@ Frame* Presenter::GetRenderFrame() {
             continue;
         }
     }
+
+    present_stats.frame_wait_ns.fetch_add(NsSince(wait_start), std::memory_order_relaxed);
 
     if (frame->width != expected_frame_width || frame->height != expected_frame_height ||
         frame->is_hdr != swapchain.GetHDR()) {

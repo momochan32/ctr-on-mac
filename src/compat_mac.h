@@ -100,6 +100,8 @@ static inline int pthread_mutex_timedlock(pthread_mutex_t *m, const struct times
 static inline int pthread_rwlock_timedrdlock(pthread_rwlock_t *l, const struct timespec *t) { BB_MAC_TIMED_LOCK(pthread_rwlock_tryrdlock, l, t) }
 static inline int pthread_rwlock_timedwrlock(pthread_rwlock_t *l, const struct timespec *t) { BB_MAC_TIMED_LOCK(pthread_rwlock_trywrlock, l, t) }
 /* Top of the calling thread's stack. */
+/* Declared here too: sources built with _POSIX_C_SOURCE hide the Darwin extensions of <pthread.h>. */
+extern void *pthread_get_stackaddr_np(pthread_t);
 static inline uintptr_t compat_thread_stack_high(void) { return (uintptr_t)pthread_get_stackaddr_np(pthread_self()); }
 
 /* Signal context registers (Linux names). */

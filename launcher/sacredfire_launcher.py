@@ -135,16 +135,22 @@ RENDER_RESOLUTIONS = [("Game default (the PS4 Pro switches decide)", ""),
                       ("1440p (2560 x 1440, PS4 Pro)", "1440"),
                       ("1620p (2880 x 1620)", "1620"),
                       ("4K (3840 x 2160)", "2160")]
-# bbport.ini widescreen_layout / widescreen_output: the corrected 21:9 and 32:9 layouts (menus,
-# backgrounds and a centered HUD, scripts/widescreen.py, by tcosi), for each of their screen sizes.
-WIDESCREEN_LAYOUTS = [("16:9", "off"), ("21:9 (corrected menus and HUD)", "21x9"),
-                      ("32:9 (corrected menus and HUD)", "32x9")]
-WIDESCREEN_OUTPUTS = {"21x9": [("3440 x 1440", "3440x1440"), ("2560 x 1080", "2560x1080")],
-                      "32x9": [("5120 x 1440", "5120x1440"), ("3840 x 1080", "3840x1080"),
-                               ("2560 x 720", "2560x720"), ("7680 x 2160", "7680x2160")]}
+# bbport.ini aspect_ratio / aspect_output: the display shape and its screen sizes.
+# scripts/aspect_ratio.py prepares 16:10; widescreen.py keeps the corrected 21:9/32:9 layouts.
+ASPECT_RATIOS = [("16:9", "16x9"), ("16:10", "16x10"),
+                 ("21:9 (corrected menus and HUD)", "21x9"),
+                 ("32:9 (corrected menus and HUD)", "32x9")]
+ASPECT_OUTPUTS = {"16x10": [("1920 x 1200", "1920x1200"), ("1280 x 800", "1280x800"),
+                           ("2560 x 1600", "2560x1600")],
+                  "21x9": [("3440 x 1440", "3440x1440"), ("2560 x 1080", "2560x1080")],
+                  "32x9": [("5120 x 1440", "5120x1440"), ("3840 x 1080", "3840x1080"),
+                           ("2560 x 720", "2560x720"), ("7680 x 2160", "7680x2160")]}
 # bbport.ini temporal: one upscaler at a time (the game reads it). DLSS is Windows-only (its
 # NVIDIA library is a Windows DLL); there "dlss" falls back to FSR 3, so it is not offered here.
 UPSCALERS = [("Off", "off"), ("AMD FSR 1", "fsr1"), ("AMD FSR 3 (experimental)", "fsr3")]
+# bbport.ini renderer: run.py sets the native renderer up and builds its shaders from the player's
+# game the first time (scripts/native_shaders.py); it has no FSR 3 (run.py uses FSR 1 instead).
+RENDERERS = [("Vulkan (shadPS4)", "shadps4"), ("Native Vulkan (experimental)", "native")]
 # Settings the game reads from bbport.ini itself (gpu/shim/bbport_settings.cpp), with the
 # game's defaults: the launcher shows and writes them, the in-game menu changes the same keys.
 GAME_FLAGS = {"async_pipelines": "0", "msaa": "0", "borderless": "0"}
@@ -179,6 +185,9 @@ DEFAULTS = {
     "language": "1",
     "fullscreen": False,  # a window on the main display; fullscreen and the monitor are options
     "present_mode": "Fifo" if MACOS else "Mailbox",
+    "gpu": "",               # the graphics card by name (bb-gpu-capabilities --gpus); "" automatic
+    "gpu_nth": 0,            # which of the GPUs that share that name, in --gpus order (0: the first)
+    "gpu_preference": "auto",  # earlier choice by kind: integrated, discrete (used without "gpu")
     "gamepad": "",
     "gamepad_name": "",
     "neo": MACOS,
@@ -276,7 +285,7 @@ if MACOS:
 # player's identity on the server: the first installation to use one keeps it.
 ONLINE_SERVER = "octr.ryu7w7.xyz"
 RESERVED_NICKS = {"ryupc", "ryunet", "player", "jugador", "guest"}
-INVENTORIES = [("Bought on the server", "server"), ("From my save (100% saves)", "save")]
+INVENTORIES = [("Bought on the server", "server"), ("Local save progress", "save")]
 
 
 def nick_ok(name):
@@ -316,6 +325,13 @@ def load_ini():
     return values, lines
 
 
+def perf_reports_text():
+    return tr("When the game closes, OCTR can send an anonymous summary of how your PC did: graphics card, "
+              "processor and memory, the graphics settings and the FPS of each track. Nothing personal: not "
+              "your nickname, your races or your friends, and your IP is not stored. It shows which PCs the "
+              "game needs to improve on. A copy always stays in the perf folder.")
+
+
 def save_ini(values, lines):
     """Rewrites the edited keys in place, appends missing ones, keeps every other line. A value
     of None removes its line (the game's default again)."""
@@ -336,6 +352,17 @@ def save_ini(values, lines):
         if key not in written and value is not None:
             out.append(f"{key}={value}")
     ini_path().write_text("\n".join(out) + "\n")
+
+
+def gpu_index(names, name, nth):
+    """The place in names (bb-gpu-capabilities --gpus, Vulkan's order: BB_GPU_ID) of the nth GPU
+    called name when several share it, the first one's if there are no longer that many; None
+    when the name is unique or not listed (BB_GPU_NAME is enough)."""
+    same = [i for i, n in enumerate(names) if n == name]
+    if len(same) < 2:
+        return None
+    return same[nth] if isinstance(nth, int) and 0 <= nth < len(same) else same[0]
+
 
 
 # Momochan32 (macOS): what the macOS build needs, whatever started the launcher. Tuned on an M3 Max:
@@ -390,9 +417,22 @@ MAC_ENV = {
 }
 
 
-def game_environment(s):
-    """Environment for run.sh from the launcher settings."""
+def game_environment(s, gpus=None):
+    """Environment for run.sh from the launcher settings. gpus: the names bb-gpu-capabilities
+    --gpus lists, in its order (None: not known, the graphics card goes by name)."""
     env = dict(os.environ)
+    env.pop("BB_GPU_NAME", None)
+    env.pop("BB_GPU_PREFERENCE", None)
+    if s.get("gpu"):
+        index = gpu_index(gpus or [], s["gpu"], s.get("gpu_nth", 0))
+        if index is not None:
+            # GPUs that share the name: BB_GPU_NAME takes the first. Otherwise a BB_GPU_ID set
+            # outside the launcher stays as it was.
+            env["BB_GPU_ID"] = str(index)
+        else:
+            env["BB_GPU_NAME"] = s["gpu"]  # one that is gone falls back to automatic (vk_instance.cpp)
+    elif s.get("gpu_preference") in ("integrated", "discrete"):
+        env["BB_GPU_PREFERENCE"] = s["gpu_preference"]
     if MACOS:
         env.pop("BB_NO_MSAA", None)
         for key, value in MAC_ENV.items():
@@ -411,7 +451,10 @@ def game_environment(s):
     env["BB_FULLSCREEN"] = "1" if s["fullscreen"] else "0"
     env["BB_PRESENT_MODE"] = s["present_mode"]
     if s.get("display"):
-        env["BB_DISPLAY"] = s["display"]  # the monitor's number (gpu/shim/window.cpp)
+        val = str(s["display"]).strip()
+        if ":" in val:
+            val = val.split(":", 1)[0].strip()
+        env["BB_DISPLAY"] = val  # the monitor's number (gpu/shim/window.cpp)
     if s.get("gamepad"):
         env["BB_GAMEPAD"] = s["gamepad"]
     env["BB_NEO"] = "1" if s.get("neo") else "0"
@@ -470,6 +513,35 @@ def settings_for_display(w, h):
     return layout, size, output
 
 
+def connected_gpus():
+    """(name, label) of the GPUs Vulkan sees (bb-gpu-capabilities --gpus: kind, Vulkan version,
+    name), with the driver setup the game gets (bbport_vulkan.py wraps the launcher too). GPUs
+    that share a name are told apart in their labels: #1, #2 in Vulkan's order."""
+    tool = capabilities_tool()
+    try:
+        run = subprocess.run([str(tool), "--gpus"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    lines = [parts for parts in (line.strip().split("\t", 2) for line in run.stdout.splitlines())
+             if len(parts) == 3]
+    names = [name for _kind, _version, name in lines]
+    found = []
+    for kind, version, name in lines:
+        label = name
+        if names.count(name) > 1:
+            label += f" #{[n for n, _ in found].count(name) + 1}"
+        label += {"discrete": tr(" (dedicated)"), "integrated": tr(" (integrated)"),
+                  "cpu": tr(" (software, very slow)")}.get(kind, "")
+        try:
+            major, minor = (int(x) for x in version.split(".")[:2])
+        except ValueError:
+            major, minor = 0, 0
+        if (major, minor) < (1, 3):
+            label += tr(" - Vulkan {}, not enough for the game").format(version)
+        found.append((name, label))
+    return found
+
+
 def connected_displays():
     """(number, label) of the monitors (bb-gpu-capabilities --displays: name, size, primary),
     numbered from 1 as BB_DISPLAY takes them; [] if unknown. DISPLAY_SIZES gets each one's (w, h)."""
@@ -500,7 +572,7 @@ def connected_displays():
             f"{number}: {parts[0]} ({parts[1]})"
         if len(parts) > 2 and parts[2] == "1":
             label += " - " + tr("primary")
-        found.append((number, label))
+        found.append((label, number))
     return found
 
 
@@ -568,6 +640,7 @@ def write_patch_config(enabled, disabled):
 MOD_PREFIX = "OCTR-Mod-Library.xml/Mod: "
 MOD_EXTENSIONS = (".pak", ".zip", ".xml")
 GAMEBANANA = "https://gamebanana.com/games/26138"  # the game's page, where the community shares mods
+MODDING_DISCORD = "https://discord.gg/434Rx9hq6T"  # the modding community: help making mods
 MOD_GUIDE_URL = "https://github.com/Brony666/OCTR-NitroFueled-PC/blob/main/docs/mod-packaging.html"
 
 
@@ -1154,6 +1227,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.build()
         self.connect("close-request", self.on_close)
         GLib.timeout_add_seconds(1, self.tick)
+        GLib.timeout_add_seconds(2, lambda: self.ask_perf_reports() and False)
 
     def build(self):
         install_css()
@@ -1339,7 +1413,10 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.user_row.add_suffix(flat_button("folder-symbolic", tr("Open in the file manager"),
                                              lambda _b: open_folder(self, self.user_dir())))
         game.add(self.user_row)
-        self.language_title = GAME_TITLE[0]
+        # The chosen game's edition from the start: built for the USA list first, an EU language
+        # (Italian, German...) showed as English, and that English was then kept and saved
+        # (issue #111).
+        self.language_title = set_game_title(self.game_dir()) if self.settings["game_dir"] else GAME_TITLE[0]
         self.language_row = combo_row(tr("Game language"), tr("The languages of your edition of the game"),
                                       languages_for(self.language_title),
                                       language_for(self.language_title, self.settings["language"]))
@@ -1352,6 +1429,35 @@ class LauncherWindow(Adw.ApplicationWindow):
                                                      "link it to Discord to recover it after a reinstall or on another PC."))
         self.online_row = Adw.SwitchRow(title=tr("Play online"), active=self.ini.get("online") == "1")
         online.add(self.online_row)
+        # The account (the site's /cuenta): log in or create it on the web, the launcher waits for
+        # its nickname; or nickname and password, by HTTPS. Typing a nickname stays below.
+        self.account_busy = None  # the running web login: {"code", "url", "cancel"}
+        self.account_row = Adw.ActionRow(title=tr("Account"))
+        self.account_login_button = Gtk.Button(label=tr("Log in / Create account"), valign=Gtk.Align.CENTER)
+        self.account_login_button.add_css_class("suggested-action")
+        self.account_login_button.connect("clicked", lambda _b: self.start_web_login())
+        self.account_row.add_suffix(self.account_login_button)
+        self.account_copy_button = Gtk.Button(label=tr("Copy link"), valign=Gtk.Align.CENTER)
+        self.account_copy_button.connect("clicked", lambda _b: self.copy_login_link())
+        self.account_row.add_suffix(self.account_copy_button)
+        self.account_cancel_button = Gtk.Button(label=tr("Cancel"), valign=Gtk.Align.CENTER)
+        self.account_cancel_button.add_css_class("flat")
+        self.account_cancel_button.connect("clicked", lambda _b: self.cancel_web_login())
+        self.account_row.add_suffix(self.account_cancel_button)
+        self.account_logout_button = Gtk.Button(label=tr("Log out"), valign=Gtk.Align.CENTER)
+        self.account_logout_button.add_css_class("flat")
+        self.account_logout_button.connect("clicked", lambda _b: self.account_logout())
+        self.account_row.add_suffix(self.account_logout_button)
+        online.add(self.account_row)
+        self.password_expander = Adw.ExpanderRow(title=tr("Log in with nickname and password"))
+        self.login_nick_row = Adw.EntryRow(title=tr("Nickname"))
+        self.login_password_row = Adw.PasswordEntryRow(title=tr("Password"))
+        login_button = Gtk.Button(label=tr("Log in"), valign=Gtk.Align.CENTER)
+        login_button.connect("clicked", lambda _b: self.password_login())
+        self.login_password_row.add_suffix(login_button)
+        self.password_expander.add_row(self.login_nick_row)
+        self.password_expander.add_row(self.login_password_row)
+        online.add(self.password_expander)
         self.nick_row = Adw.EntryRow(title=tr("Nickname (3-16 letters, digits, _ or -)"),
                                      text=self.ini.get("online_name", ""))
         self.nick_row.connect("changed", lambda _row: self.nick_changed())
@@ -1494,6 +1600,32 @@ class LauncherWindow(Adw.ApplicationWindow):
             self.retain_row.add_css_class("warning")
             self.retain_row.connect("notify::active", lambda *_: self.store())
             self.retain_group.add(self.retain_row)
+        else:
+            gpus = connected_gpus()
+            # Each card is (name, which of the cards with that name): two with one name stay apart.
+            self.gpu_names = [n for n, _ in gpus]
+            gpu_choices = [(tr("Automatic"), ("", 0))] + [(label, (n, self.gpu_names[:i].count(n)))
+                                                          for i, (n, label) in enumerate(gpus)]
+            gpu, gpu_nth = self.settings.get("gpu", ""), self.settings.get("gpu_nth", 0)
+            if gpu and gpu not in self.gpu_names:
+                gpu_choices.append((tr("{} (not detected)").format(gpu), (gpu, gpu_nth)))
+            elif (gpu, gpu_nth) not in [value for _, value in gpu_choices]:
+                gpu_nth = 0  # fewer cards with that name now: the first of them
+            self.gpu_row = combo_row(
+                tr("Graphics card"),
+                tr("On laptops with two GPUs, choose the dedicated one (NVIDIA or AMD) if the game starts on the "
+                   "integrated one. Automatic uses the dedicated GPU when it has Vulkan 1.3. Applied when the game "
+                   "starts. If your dedicated GPU is not listed, update its driver."),
+                gpu_choices, (gpu, gpu_nth))
+            screen.add(self.gpu_row)
+            self.renderer_row = combo_row(
+                tr("Graphics engine"),
+                tr("Vulkan (shadPS4) is the usual engine. The native one draws the game straight with Vulkan, without "
+                   "emulating the PS4's GPU: more FPS and fewer hitches, but it is experimental. The first time it builds "
+                   "its shaders from your copy of the game (a few minutes). The native engine has no FSR 3 (FSR 1 works). "
+                   "If something goes wrong, go back to Vulkan (shadPS4)."),
+                RENDERERS, self.ini.get("renderer", "shadps4"))
+            screen.add(self.renderer_row)
         self.fullscreen_row = Adw.SwitchRow(title=tr("Fullscreen"), active=self.settings["fullscreen"])
         screen.add(self.fullscreen_row)
         self.borderless_row = Adw.SwitchRow(title=tr("Borderless window"),
@@ -1531,9 +1663,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         screen.add(self.output_res_row)
         self.layout_row = combo_row(
             tr("Aspect ratio"),
-            tr("21:9 and 32:9 correct the menus, backgrounds and HUD for that screen. Online or offline, with the 1.21 "
-               "update, USA or Europe (otherwise the game starts at 16:9); no FSR. The internal resolution picks the variant."),
-            WIDESCREEN_LAYOUTS, self.ini.get("widescreen_layout", "off"))
+            tr("16:10 keeps the original menus and aligns the HUD effects. 21:9 and 32:9 include menu and HUD corrections. "
+               "USA or Europe 1.21; otherwise the game starts at 16:9. No FSR or DLSS. Requires a restart."),
+            ASPECT_RATIOS, self.ini.get("aspect_ratio", self.ini.get("widescreen_layout", "16x9")))
         screen.add(self.layout_row)
         self.layout_output_row = show_full_value(Adw.ComboRow(title=tr("Screen size")))
         self.layout_output_row.values = []
@@ -1579,6 +1711,9 @@ class LauncherWindow(Adw.ApplicationWindow):
             page.add(self.driver_group)
             page.add(self.retain_group)
             self.update_retain_row()
+        self.perf_row = Adw.SwitchRow(title=tr("Send anonymous performance data"), subtitle=perf_reports_text(),
+                                      active=self.ini.get("perf_reports") == "1")
+        screen.add(self.perf_row)
         page.add(screen)
 
         sound = Adw.PreferencesGroup(title=tr("Sound"))
@@ -1747,8 +1882,13 @@ class LauncherWindow(Adw.ApplicationWindow):
     def restart_into(self, appimage):
         """The new AppImage starts in place of this launcher (the stable Steam link follows it)."""
         self.store()
-        subprocess.Popen([str(appimage)], env=host_environment(), start_new_session=True,
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            subprocess.Popen([str(appimage), "--updated"], cwd=str(appimage.parent),
+                             env=host_environment(), start_new_session=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as error:
+            self.update_banner.set_title(tr("Updated, but could not restart the launcher: {}").format(error))
+            return
         self.presence.shutdown()
         self.get_application().quit()
 
@@ -1794,8 +1934,9 @@ class LauncherWindow(Adw.ApplicationWindow):
     def update_layout(self, output=None):
         """The screen sizes of the chosen layout (none for 16:9)."""
         layout = combo_value(self.layout_row)
-        choices = WIDESCREEN_OUTPUTS.get(layout, [])
-        current = output or (combo_value(self.layout_output_row) if self.layout_output_row.values else None)             or self.ini.get("widescreen_output", "")
+        choices = ASPECT_OUTPUTS.get(layout, [])
+        current = (output or (combo_value(self.layout_output_row) if self.layout_output_row.values else None)
+                   or self.ini.get("aspect_output", self.ini.get("widescreen_output", "")))
         values = [v for _l, v in choices]
         self.layout_output_row.set_model(Gtk.StringList.new([label for label, _v in choices]))
         self.layout_output_row.values = values
@@ -1898,6 +2039,9 @@ class LauncherWindow(Adw.ApplicationWindow):
             s["mvk_force_retain"] = self.retain_row.get_active()
         s["any_version"] = self.any_version_row.get_active()
         s["present_mode"] = combo_value(self.present_row)
+        if hasattr(self, "gpu_row"):  # not on a Mac: one GPU
+            s["gpu"], s["gpu_nth"] = combo_value(self.gpu_row)
+            s["gpu_preference"] = "auto"
         s["mangohud"] = self.mangohud_row.get_active()
         s["frame_stats"] = self.stats_row.get_active()
         s["save_log"] = self.save_log_row.get_active()
@@ -1914,12 +2058,16 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.ini, self.ini_lines = load_ini()
         self.ini["show_fps"] = "1" if self.fps_row.get_active() else "0"
         self.ini["show_ping"] = "1" if self.ping_row.get_active() else "0"
+        if self.perf_row.get_active() or self.ini.get("perf_reports") in ("0", "1"):
+            self.ini["perf_reports"] = "1" if self.perf_row.get_active() else "0"  # unasked stays unasked
         self.ini["split_auto"] = "1" if self.split_auto_row.get_active() else "0"
         self.ini["button_prompts"] = combo_value(self.button_prompts_row)
         self.ini["async_pipelines"] = "1" if self.async_row.get_active() else "0"
         self.ini["msaa"] = "1" if self.msaa_row.get_active() and sys.platform != "darwin" else "0"
         self.ini["borderless"] = "1" if self.borderless_row.get_active() else "0"
         self.ini["temporal"] = combo_value(self.upscaler_row)
+        # macOS: shadPS4 Vulkan only (the native engine is untested there).
+        self.ini["renderer"] = combo_value(self.renderer_row) if hasattr(self, "renderer_row") else "shadps4"
         self.ini["fsr1"] = self.ini["fsr3"] = None  # older keys: temporal decides
         self.ini["fsr3_sharpness"] = f"{self.sharpness_row.get_value():.2f}"
         self.ini["volume"] = str(int(self.volume_scale.get_value()))
@@ -1927,9 +2075,12 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.ini["render_res"] = combo_value(self.render_res_row) or None  # "": the Pro switches decide
         self.ini["output_res"] = combo_value(self.output_res_row)
         layout = combo_value(self.layout_row)
-        self.ini["widescreen_layout"] = layout
-        if layout != "off":
-            self.ini["widescreen_output"] = combo_value(self.layout_output_row)
+        self.ini["aspect_ratio"] = layout
+        self.ini["widescreen_layout"] = layout if layout in ("21x9", "32x9") else "off"
+        if layout != "16x9":
+            self.ini["aspect_output"] = combo_value(self.layout_output_row)
+            if layout in ("21x9", "32x9"):
+                self.ini["widescreen_output"] = self.ini["aspect_output"]
             self.ini["ultrawide"] = "0"  # the layout sets the size (the in-game ultrawide would not correct the menus)
         self.ini["online"] = "1" if self.online_row.get_active() else "0"
         self.ini["online_name"] = self.nick_row.get_text().strip()
@@ -1944,6 +2095,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.fill_patches()
         self.fps_row.set_active(self.ini.get("show_fps") == "1")
         self.ping_row.set_active(self.ini.get("show_ping") == "1")
+        self.perf_row.set_active(self.ini.get("perf_reports") == "1")
         self.split_auto_row.set_active(self.ini.get("split_auto") != "0")
         prompts = self.ini.get("button_prompts", "playstation")
         self.button_prompts_row.set_selected(self.button_prompts_row.values.index(prompts)
@@ -1951,6 +2103,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.async_row.set_active(self.ini.get("async_pipelines") == "1")
         self.msaa_row.set_active(self.ini.get("msaa") == "1")
         self.borderless_row.set_active(self.ini.get("borderless") == "1")
+        renderer = self.ini.get("renderer", "shadps4")
+        if hasattr(self, "renderer_row") and renderer in self.renderer_row.values:
+            self.renderer_row.set_selected(self.renderer_row.values.index(renderer))
         temporal = self.ini.get("temporal", "off")
         if temporal in self.upscaler_row.values:
             self.upscaler_row.set_selected(self.upscaler_row.values.index(temporal))
@@ -1968,12 +2123,12 @@ class LauncherWindow(Adw.ApplicationWindow):
         out_res = self.ini.get("output_res", "1920x1080")
         values = self.output_res_row.values
         self.output_res_row.set_selected(values.index(out_res) if out_res in values else values.index("1920x1080"))
-        layout = self.ini.get("widescreen_layout", "off")
+        layout = self.ini.get("aspect_ratio", self.ini.get("widescreen_layout", "16x9"))
         self.layout_row.set_selected(self.layout_row.values.index(layout) if layout in self.layout_row.values else 0)
-        self.update_layout(self.ini.get("widescreen_output", ""))
+        self.update_layout(self.ini.get("aspect_output", self.ini.get("widescreen_output", "")))
 
     def environment(self):
-        return game_environment(self.settings)
+        return game_environment(self.settings, getattr(self, "gpu_names", None))
 
     def set_ini(self, changes):
         """Writes some bbport.ini keys at once (None removes a line: the default again),
@@ -2324,7 +2479,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         intro.add(add_files)
         intro.add(button_bar(add_button, folder_button))
         self.mods_controls = [add_button, folder_button]
-        for title, url in ((tr("Find mods on GameBanana"), GAMEBANANA), (tr("Read the packaging guide"), None)):
+        for title, url in ((tr("Find mods on GameBanana"), GAMEBANANA),
+                           (tr("Modding Discord (help making mods)"), MODDING_DISCORD),
+                           (tr("Read the packaging guide"), None)):
             row = Adw.ActionRow(title=title, activatable=True)
             row.add_suffix(Gtk.Image(icon_name="web-browser-symbolic" if url else "help-about-symbolic"))
             row.connect("activated", lambda _r, url=url: self.open_mod_link(url))
@@ -2422,6 +2579,12 @@ class LauncherWindow(Adw.ApplicationWindow):
         switch.set_tooltip_text(tr("Disable mod") if on else tr("Enable mod"))
         switch.connect("notify::active", lambda s, *_a: self.on_mod_toggled(key, s))
         (row.add_suffix if hasattr(row, "add_suffix") else row.add_action)(switch)
+        item = (self.mods_scan or {}).get("entries", {}).get(ident, {})
+        if item.get("configuration"):
+            configure = flat_button("applications-engineering-symbolic", tr("Configure mod"),
+                                    lambda _b: self.configure_mod(ident, item))
+            configure.set_sensitive(not locked and not self.mods_busy)
+            (row.add_suffix if hasattr(row, "add_suffix") else row.add_action)(configure)
         description = Adw.ActionRow(title=GLib.markup_escape_text(meta.get("ModDescription") or
                                                                   tr("The creator has not provided a description.")))
         description.set_title_lines(0)
@@ -2436,6 +2599,124 @@ class LauncherWindow(Adw.ApplicationWindow):
         source.add_suffix(remove)
         row.add_row(source)
         return row
+
+    def configure_mod(self, ident, item):
+        """Edit the catalog's declarative choices; package code is never executed."""
+        if self.process is not None or self.mods_busy:
+            return
+        window = Adw.Dialog(title=item["name"], content_width=620, content_height=600)
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(Adw.HeaderBar())
+        window.set_child(toolbar)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
+                      margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+        toolbar.set_content(box)
+        page = Adw.PreferencesPage(vexpand=True)
+        box.append(page)
+        normal = Adw.PreferencesGroup(description=tr("Close the game before saving configuration. Changes apply the next time you start the game."))
+        page.add(normal)
+        advanced = Adw.ExpanderRow(title=tr("Advanced settings"))
+        advanced_group = Adw.PreferencesGroup()
+        controls = {}
+        rules = item["configuration"]
+        values = item["option_values"]
+        grid_rules = {k: r for k, r in rules.items() if "row" in r}
+        if grid_rules:
+            grid = Gtk.Grid(column_spacing=12, row_spacing=12,
+                            margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+            rows = list(dict.fromkeys(r["row"] for r in grid_rules.values()))
+            columns = list(dict.fromkeys(r["column"] for r in grid_rules.values()))
+            for c, label in enumerate(columns, 1):
+                grid.attach(Gtk.Label(label=label, wrap=True), c, 0, 1, 1)
+            for r, label in enumerate(rows, 1):
+                grid.attach(Gtk.Label(label=label, xalign=0, wrap=True), 0, r, 1, 1)
+            for key, rule in grid_rules.items():
+                control = Gtk.CheckButton(active=values[key], halign=Gtk.Align.CENTER,
+                                          tooltip_text=rule.get("description", rule["label"]))
+                control.update_property([Gtk.AccessibleProperty.LABEL], [rule["label"]])
+                grid.attach(control, columns.index(rule["column"]) + 1,
+                            rows.index(rule["row"]) + 1, 1, 1)
+                controls[key] = control
+            normal.add(grid)
+        for key, rule in rules.items():
+            if key in grid_rules:
+                continue
+            properties = {"title": GLib.markup_escape_text(rule["label"])}
+            if rule.get("description"):
+                properties["subtitle"] = GLib.markup_escape_text(rule["description"])
+            if rule["type"] == "boolean":
+                control = Adw.SwitchRow(active=values[key], **properties)
+            else:
+                choices = list(rule["choices"])
+                control = Adw.ComboRow(model=Gtk.StringList.new(list(rule["choices"].values())),
+                                       selected=choices.index(values[key]), **properties)
+            controls[key] = control
+            if rule.get("advanced"):
+                advanced.add_row(control)
+            else:
+                normal.add(control)
+        if any(r.get("advanced") for r in rules.values()):
+            advanced_group.add(advanced)
+            page.add(advanced_group)
+        status = Gtk.Label(wrap=True, xalign=0)
+        box.append(status)
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        box.append(buttons)
+        reset = Gtk.Button(label=tr("Reset to defaults"))
+        cancel = Gtk.Button(label=tr("Cancel"))
+        save = Gtk.Button(label=tr("Save"))
+        save.add_css_class("suggested-action")
+        for button in (reset, cancel, save):
+            buttons.append(button)
+
+        def reset_values(_button):
+            for key, rule in rules.items():
+                if rule["type"] == "boolean":
+                    controls[key].set_active(rule["default"])
+                else:
+                    controls[key].set_selected(list(rule["choices"]).index(rule["default"]))
+
+        def save_values(_button):
+            if self.process is not None or self.mods_busy:
+                status.set_text(tr("Close the game to change mods."))
+                return
+            selected = {key: ("true" if controls[key].get_active() else "false")
+                        if rule["type"] == "boolean" else
+                        list(rule["choices"])[controls[key].get_selected()]
+                        for key, rule in rules.items()}
+            self.mods_busy = True
+            self.fill_mods()
+            box.set_sensitive(False)
+            window.set_can_close(False)
+            status.set_text(tr("Saving..."))
+
+            def work():
+                import mod_library
+                try:
+                    return mod_library.configure(mods_dir(), user_patches_dir(), ident,
+                                                 item["sha256"], selected), None
+                except Exception as error:
+                    return None, str(error)
+
+            def done(result):
+                catalog, error = result
+                self.mods_busy = False
+                box.set_sensitive(True)
+                window.set_can_close(True)
+                if error:
+                    status.set_text(error)
+                else:
+                    self.mods_scan = catalog
+                    window.close()
+                    self.toasts.add_toast(Adw.Toast(
+                        title=tr("Mod options saved. Applied when you start the game.")))
+                self.fill_mods()
+            self.in_thread(work, done)
+
+        reset.connect("clicked", reset_values)
+        cancel.connect("clicked", lambda _b: window.close())
+        save.connect("clicked", save_values)
+        window.present(self)
 
     def on_mod_toggled(self, key, switch):
         on = switch.get_active()
@@ -2501,12 +2782,93 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.fill_saves()
         return page
 
+    def cloud_saves_group(self, locked, user):
+        """The account's saves on the server (scripts/cloud_cli.py): listed on request; bringing one
+        here keeps this PC's save in <user>/cloud/backup-<title>.zip first."""
+        group = Adw.PreferencesGroup(title=tr("Cloud saves"),
+                                     description=tr("After you play online, your save goes up to your account (the last 5 "
+                                                    "versions). Bring one to this PC: the one you have now is kept first as a "
+                                                    "backup."))
+        button = Gtk.Button(label=tr("See my cloud saves"), valign=Gtk.Align.CENTER)
+        head = Adw.ActionRow(title=tr("Your account's saves"))
+        head.add_suffix(button)
+        group.add(head)
+        rows = []
+
+        def listed(answer):
+            for row in rows:
+                group.remove(row)
+            rows.clear()
+            error = answer.get("error")
+            if error:
+                head.set_subtitle(tr("Log in with your account (Online page) to see your cloud saves.") if error == "no_account"
+                                  else tr("Could not ask the server."))
+                return
+            saves = answer.get("saves", [])
+            head.set_subtitle(tr("No cloud saves yet: they upload by themselves after you play online.") if not saves else "")
+            for v in saves:
+                when = time.strftime("%Y-%m-%d %H:%M", time.localtime(v.get("created", 0)))
+                row = Adw.ActionRow(title=when, subtitle=f"{'EU' if v.get('title') == 'CUSA14876' else 'USA'}  ·  "
+                                                          f"{format_size(v.get('size', 0))}")
+                bring = Gtk.Button(label=tr("Bring to this PC"), valign=Gtk.Align.CENTER, sensitive=not locked)
+                bring.connect("clicked", lambda _b, vid=v.get("id"): self.confirm_cloud_restore(vid, user))
+                row.add_suffix(bring)
+                group.add(row)
+                rows.append(row)
+
+        def ask(_b):
+            head.set_subtitle(tr("Working…"))
+            self.in_thread(lambda: self.cloud_cli(["list"], user), listed)
+        button.connect("clicked", ask)
+        return group
+
+    def cloud_cli(self, args, user):
+        """scripts/cloud_cli.py, in this process (its JSON object)."""
+        import contextlib
+        import io
+        sys.path.insert(0, str(PORT_DIR / "scripts"))
+        import cloud_cli
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                cloud_cli.main(args + ["--data", str(DATA_DIR), "--config", str(ini_path()), "--user", str(user)])
+        except SystemExit as stop:
+            if isinstance(stop.code, str):  # no account: the object comes in the exit
+                out.write("\n" + stop.code)
+        try:
+            return json.loads(out.getvalue().strip().splitlines()[-1])
+        except (IndexError, ValueError):
+            return {"error": "cli"}
+
+    def confirm_cloud_restore(self, vid, user):
+        dialog = Adw.AlertDialog(heading=tr("Bring this save to this PC?"),
+                                 body=tr("It replaces this PC's save; the current one is kept as a backup first."))
+        dialog.add_response("cancel", tr("Cancel"))
+        dialog.add_response("bring", tr("Bring to this PC"))
+        dialog.set_response_appearance("bring", Adw.ResponseAppearance.SUGGESTED)
+
+        def done(answer):
+            if answer.get("error"):
+                self.toasts.add_toast(Adw.Toast(title=tr("Could not restore: {}").format(answer["error"]), timeout=10))
+            else:
+                self.toasts.add_toast(Adw.Toast(title=tr("Save restored. The one you had is in {}.").format(answer.get("backup")),
+                                                timeout=10))
+                self.fill_saves()
+
+        def chosen(_d, response):
+            if response == "bring":
+                self.in_thread(lambda: self.cloud_cli(["restore", "--id", str(vid)], user), done)
+        dialog.connect("response", chosen)
+        dialog.present(self)
+
     def fill_saves(self):
         for group in self.saves_groups:
             self.saves_page.remove(group)
         self.saves_groups = []
         locked = self.process is not None
         user = self.user_dir()
+        self.saves_groups.append(self.cloud_saves_group(locked, user))
+        self.saves_page.add(self.saves_groups[-1])
         saves = Adw.PreferencesGroup(
             title=tr("Saves"),
             description=(tr("Close the game to back up, import or restore saves.") + "\n" if locked else "") +
@@ -2866,7 +3228,10 @@ class LauncherWindow(Adw.ApplicationWindow):
         total = len(t.trophies)
         points = sum(trophies.POINTS.get(x["grade"], 0) for x in t.trophies)
         earned = sum(trophies.POINTS.get(x["grade"], 0) for x in t.trophies if x["unlocked"])
-        progress = earned / points if points else (unlocked / total if total else 0.0)
+        # By grade points only when every trophy has its grade: OCTR's own graded trophy among the
+        # game's unknown ones made the progress that one trophy's alone (0 % with 20 of 49).
+        graded = all(trophies.POINTS.get(x["grade"], 0) for x in t.trophies)
+        progress = earned / points if graded and points else (unlocked / total if total else 0.0)
         group = Adw.PreferencesGroup()
         card = Gtk.Box(spacing=16)
         card.add_css_class("card")
@@ -2968,6 +3333,36 @@ class LauncherWindow(Adw.ApplicationWindow):
                 self.toasts.add_toast(Adw.Toast(title=tr("Could not reset: {}").format(error)))
             self.fill_trophies()
         self.confirm(tr("Lock every trophy again?"), tr("A copy is kept just in case."), tr("Reset"), reset)
+
+    def ask_perf_reports(self):
+        """The anonymous performance diagnostic (bbport.ini perf_reports, scripts/perf_report.py):
+        asked once, while it is neither 1 nor 0. A plain question, no alarm."""
+        if load_ini()[0].get("perf_reports") in ("0", "1"):
+            return
+
+        def answer(_dialog, response):
+            if response not in ("yes", "no"):
+                return
+            self.ini, self.ini_lines = load_ini()
+            self.ini["perf_reports"] = "1" if response == "yes" else "0"
+            save_ini(self.ini, self.ini_lines)
+            self.perf_row.set_active(response == "yes")
+
+        heading = tr("Help us improve OCTR?")
+        body = perf_reports_text() + "\n\n" + tr("You can change it any time in Settings.")
+        if hasattr(Adw, "AlertDialog"):
+            dialog = Adw.AlertDialog(heading=heading, body=body)
+        else:
+            dialog = Adw.MessageDialog(transient_for=self, heading=heading, body=body)
+        dialog.add_response("no", tr("No, thanks"))
+        dialog.add_response("yes", tr("Yes, send anonymous data"))
+        dialog.set_response_appearance("yes", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_close_response("")  # Escape asks again next time
+        dialog.connect("response", answer)
+        if hasattr(Adw, "AlertDialog"):
+            dialog.present(self)
+        else:
+            dialog.present()
 
     def inform(self, heading, body):
         """A message with a single OK."""
@@ -3095,6 +3490,7 @@ class LauncherWindow(Adw.ApplicationWindow):
             text += " " + tr("This PC's clock is {} min off: online corrects it, but set the date and time "
                              "to automatic in the system settings.").format(round(clock_off / 60))
         self.nick_status_row.set_subtitle(GLib.markup_escape_text(text))
+        self.show_account()
         idle = not self.discord_busy
         self.discord_link_button.set_visible(link_available and idle and nick_ok(nick) and status in ("free", "yours")
                                              and not linked)
@@ -3104,6 +3500,138 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def discord_app_id(self):
         return self.settings.get("discord_app_id") or DISCORD_APP_ID
+
+    def show_account(self):
+        info = self.nick_info or {}
+        # An account: a nickname of this PC's linked to Discord (as the site's are); a typed one is not.
+        mine = nick_ok(self.nick()) and info.get("status") == "yours"
+        signed_in = mine and bool(info.get("linked"))
+        waiting = self.account_busy is not None
+        if signed_in:
+            text = tr("Logged in: {}").format(self.nick())
+        elif waiting:
+            text = tr("Log in on the web and authorize this PC (code {})…").format(self.account_busy.get("code") or "…")
+        else:
+            text = tr("Log in with your account, or create it on the web: your nickname, coins, friends, trophies and "
+                      "saves follow you to any PC.")
+            if info.get("account_required"):
+                text = tr("This server does not allow playing online with just a nickname: you must log in or create "
+                          "your account (with Discord, or with your nickname and password).") + "\n" + text
+            if mine:
+                text = tr("You play as {} without an account.").format(self.nick()) + "\n" + text
+        self.account_row.set_subtitle(GLib.markup_escape_text(text))
+        self.account_login_button.set_visible(not signed_in and not waiting)
+        self.account_copy_button.set_visible(waiting and bool(self.account_busy.get("url")))
+        self.account_cancel_button.set_visible(waiting)
+        self.account_logout_button.set_visible(signed_in and not waiting)
+        self.password_expander.set_visible(not signed_in)
+
+    def start_web_login(self):
+        if self.account_busy is not None:
+            return
+        self.store()
+        server = self.server()
+        state = {"code": "", "url": "", "cancel": False}
+        self.account_busy = state
+        self.show_account()
+
+        def opened(url, ok):
+            state["url"] = url
+            if not ok:
+                # No browser came up: the link is copied, ready to paste.
+                self.get_clipboard().set(url)
+                self.toasts.add_toast(Adw.Toast(title=tr("Could not open your browser: the link was copied. Paste it in your "
+                                                         "browser and authorize this PC."), timeout=0))
+            self.show_account()
+            return False
+
+        def work():
+            import time as _time
+            started = ryunet_http.device_start(DATA_DIR, server)
+            if not started or not started.get("code") or not str(started.get("url", "")).startswith("http"):
+                return {"error": (started or {}).get("error") or ("server" if started else "unreachable")}
+            state["code"] = started["code"]
+            url = started["url"]
+            GLib.idle_add(lambda: opened(url, open_external(url)))
+            deadline = _time.monotonic() + 600
+            while _time.monotonic() < deadline:
+                for _ in range(30):
+                    _time.sleep(0.1)
+                    if state["cancel"]:
+                        return {"cancelled": True}
+                answer = ryunet_http.device_poll(DATA_DIR, server, state["code"]) or {}
+                if answer.get("status") == "approved":
+                    return answer
+                if answer.get("status") == "expired":
+                    break
+            return {"error": "expired"}
+
+        def done(result):
+            self.account_busy = None
+            if result.get("status") == "approved" and nick_ok(result.get("nick", "")):
+                self.nick_row.set_text(result["nick"])
+                self.store()
+                self.toasts.add_toast(Adw.Toast(title=tr("Done: this PC plays as {}.").format(result["nick"]), timeout=8))
+                self.ask_nick_status()
+            elif not result.get("cancelled"):
+                error = result.get("error", "")
+                self.toasts.add_toast(Adw.Toast(title=tr("The code expired: press Log in again.") if error == "expired"
+                                                else tr("This PC cannot log in on this server.") if error.startswith("banned")
+                                                else tr("Could not reach the server.") if error == "unreachable"
+                                                else tr("This server has no accounts yet: type the nickname below."), timeout=10))
+            self.show_account()
+        self.in_thread(work, done)
+
+    def copy_login_link(self):
+        if self.account_busy and self.account_busy.get("url"):
+            self.get_clipboard().set(self.account_busy["url"])
+            self.toasts.add_toast(Adw.Toast(title=tr("Link copied: paste it in your browser.")))
+
+    def cancel_web_login(self):
+        if self.account_busy is not None:
+            self.account_busy["cancel"] = True
+
+    def account_logout(self):
+        dialog = Adw.AlertDialog(heading=tr("Log out?"),
+                                 body=tr("This PC stops playing with your account until you log in again. Your account, "
+                                         "coins and trophies stay on the server."))
+        dialog.add_response("cancel", tr("Cancel"))
+        dialog.add_response("logout", tr("Log out"))
+        dialog.set_response_appearance("logout", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def chosen(_d, response):
+            if response == "logout":
+                self.nick_row.set_text("")
+                self.store()
+                self.ask_nick_status()
+        dialog.connect("response", chosen)
+        dialog.present(self)
+
+    def password_login(self):
+        nick, password = self.login_nick_row.get_text().strip(), self.login_password_row.get_text()
+        if not nick or not password:
+            return
+        self.store()
+        server = self.server()
+        self.login_password_row.set_text("")
+
+        def done(answer):
+            answer = answer or {}
+            if answer.get("status") == "ok" and nick_ok(answer.get("nick", "")):
+                self.nick_row.set_text(answer["nick"])
+                self.store()
+                self.toasts.add_toast(Adw.Toast(title=tr("Done: this PC plays as {}.").format(answer["nick"]), timeout=8))
+                self.ask_nick_status()
+                return
+            error = answer.get("error", "")
+            self.toasts.add_toast(Adw.Toast(title={
+                "wrong": tr("Wrong nickname or password."),
+                "too_many": tr("Too many attempts: wait 15 minutes."),
+                "https_needs_name": tr("The password only travels by HTTPS, which needs the server's name (not its IP): "
+                                       "use Log in / Create account."),
+            }.get(error, tr("This PC cannot log in on this server.") if error.startswith("banned")
+                  else tr("Could not reach the server by HTTPS.")), timeout=10))
+        self.in_thread(lambda: ryunet_http.password_login(DATA_DIR, server, nick, password), done)
 
     def start_discord_link(self, mode):
         """mode: "link" this nickname, or "recover" the one linked to the Discord account."""
@@ -3481,8 +4009,11 @@ class LauncherWindow(Adw.ApplicationWindow):
             return
         if line is None:
             return
-        self.append_log(line + "\n")
-        self.note_issue_line(line)
+        if line.startswith("@progress "):
+            self.shader_progress(line)  # not shown in the log
+        else:
+            self.append_log(line + "\n")
+            self.note_issue_line(line)
         self.read_line()
 
     def credits_group(self):
@@ -3494,6 +4025,54 @@ class LauncherWindow(Adw.ApplicationWindow):
         for name, role in CREDITS:
             group.add(Adw.ActionRow(title=name, subtitle=tr(role)))
         return group
+
+    def shader_progress(self, line):
+        """run.sh's "@progress native-shaders <percent> <stage>" lines (scripts/native_shaders.py):
+        a window with a progress bar while the native engine's shaders are built, the first time."""
+        parts = line.split()
+        if len(parts) < 3 or parts[1] != "native-shaders":
+            return
+        if parts[2] == "done":
+            if getattr(self, "shader_window", None):
+                self.shader_window.destroy()
+                self.shader_window = None
+            if self.settings.get("hide_on_play"):
+                self.set_visible(False)
+            return
+        try:
+            percent = max(0, min(100, int(parts[2])))
+        except ValueError:
+            return
+        stage = parts[3] if len(parts) > 3 else ""
+        if not getattr(self, "shader_window", None):
+            if not self.get_visible():
+                self.set_visible(True)
+            self.present()
+            window = Gtk.Window(transient_for=self, modal=True, title=tr("Compiling the native engine's shaders"),
+                                default_width=460, deletable=False)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=18, margin_bottom=18,
+                          margin_start=18, margin_end=18)
+            heading = Gtk.Label(label=tr("Compiling the native engine's shaders"), xalign=0)
+            heading.add_css_class("title-4")
+            note = Gtk.Label(label=tr("Only the first time: they are built from your copy of the game and take a few "
+                                      "minutes. The game opens by itself when they are done."),
+                             wrap=True, xalign=0)
+            note.add_css_class("dim-label")
+            self.shader_bar = Gtk.ProgressBar(show_text=True)
+            self.shader_step = Gtk.Label(xalign=0)
+            self.shader_step.add_css_class("dim-label")
+            cancel = Gtk.Button(label=tr("Cancel"), halign=Gtk.Align.END)
+            cancel.connect("clicked", lambda _b: self.stop_game())
+            for widget in (heading, note, self.shader_bar, self.shader_step, cancel):
+                box.append(widget)
+            window.set_child(box)
+            window.present()
+            self.shader_window = window
+        steps = {"extract": tr("Reading the game's shaders..."), "export": tr("Preparing the programs..."),
+                 "translate": tr("Translating the shaders..."), "compile": tr("Compiling the shaders...")}
+        self.shader_bar.set_fraction(percent / 100)
+        self.shader_bar.set_text(f"{percent} %")
+        self.shader_step.set_label(steps.get(stage, tr("Finishing...")))
 
     def stop_game(self):
         if not self.process:
@@ -3519,6 +4098,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         except GLib.Error:
             pass
         status = process.get_exit_status() if process.get_if_exited() else -1
+        if getattr(self, "shader_window", None):  # cancelled or failed while building the shaders
+            self.shader_window.destroy()
+            self.shader_window = None
         self.process = None
         self.game_started = 0
         self.party = None
@@ -3537,7 +4119,7 @@ class LauncherWindow(Adw.ApplicationWindow):
             self.set_visible(True)
         self.present()
         if status == UNSUPPORTED_GPU_CODE:
-            self.inform("Vulkan 1.3", tr("Your graphics card or its driver doesn't support Vulkan 1.3, which the game "
+            self.inform("Vulkan 1.3 / sparse binding", tr("Your graphics card or its driver doesn't support Vulkan 1.3 / sparse binding, which the game "
                                          "needs. Update the GPU driver; if it is already the latest, the card is too "
                                          "old for this system."))
 
@@ -3552,7 +4134,9 @@ class LauncherWindow(Adw.ApplicationWindow):
 class LauncherApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID,
-                         flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+                         # The old instance still owns the application ID during update handoff.
+                         flags=(Gio.ApplicationFlags.NON_UNIQUE if "--updated" in sys.argv
+                                else Gio.ApplicationFlags.DEFAULT_FLAGS))
 
     def do_activate(self):
         window = self.get_active_window()
@@ -3645,7 +4229,7 @@ def play():
         print("Momochan32: choose the game folder in the launcher first", file=sys.stderr)
         return 1
     os.chdir(PORT_DIR)
-    env = game_environment(settings)
+    env = game_environment(settings, [n for n, _ in connected_gpus()] if settings.get("gpu") else None)
     steam_shortcuts.stable_appimage_link()
     bash = os.environ.get("BB_BASH", "/opt/homebrew/bin/bash") if MACOS else "bash"  # macOS: run.sh needs bash 5
     if not settings.get("discord_rpc", True):
@@ -3721,4 +4305,4 @@ def play():
 if __name__ == "__main__":
     if "--play" in sys.argv[1:]:
         sys.exit(play())
-    sys.exit(LauncherApp().run([a for a in sys.argv if a != "--play"]))
+    sys.exit(LauncherApp().run([a for a in sys.argv if a not in ("--play", "--updated")]))

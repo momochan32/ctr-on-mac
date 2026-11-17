@@ -21,6 +21,7 @@
 #else
 #include <arpa/inet.h>
 #include <sys/stat.h>
+#define strtok_s(str, delim, ptr) strtok_r(str, delim, ptr)
 #endif
 
 #define USER_ID 1
@@ -164,10 +165,12 @@ static void poll_invite_file(void) {
     if (now==last_check) return;
     last_check=now;
     char path[600];
-    const char *cfg=getenv("BB_CONFIG");
+    /* Mod sessions redirect BB_CONFIG; the launcher still writes to its own directory. */
+    const char *cfg=getenv("BB_LAUNCHER_CONFIG");
+    if (!cfg || !*cfg) cfg=getenv("BB_CONFIG");
     const char *slash=cfg ? strrchr(cfg,'/') : NULL;
     const char *bslash=cfg ? strrchr(cfg,'\\') : NULL;
-    if (bslash>slash) slash=bslash;
+    if (bslash && (!slash || bslash>slash)) slash=bslash;
     if (slash) snprintf(path,sizeof path,"%.*s/ryunet_join.txt",(int)(slash-cfg),cfg);
     else snprintf(path,sizeof path,"ryunet_join.txt");
     FILE *f=fopen(path,"r");
@@ -462,6 +465,18 @@ static void get_sessions_dir(char *out, size_t out_len) {
  * players need server-side membership; only users seen joining on this
  * machine are ever recorded here. At most 8 members per session. */
 static pthread_mutex_t s_members_lock = PTHREAD_MUTEX_INITIALIZER;
+/* The WebAPI invitation session can remain after leaving a private room. It
+ * identifies the room, while recent game traffic with a peer distinguishes a
+ * multiplayer race from Arcade/Adventure. */
+static int s_private_room;
+extern int runtime_net_private_lobby_active(void); /* runtime_net.c */
+int runtime_private_room_active(void) {
+    return __atomic_load_n(&s_private_room, __ATOMIC_ACQUIRE) &&
+           runtime_net_private_lobby_active();
+}
+static void private_room_active(int active) {
+    __atomic_store_n(&s_private_room, active, __ATOMIC_RELEASE);
+}
 
 static int session_members_path(const char *sid, char *out, size_t out_size) {
     if (!sid || !*sid) return 0;
@@ -572,6 +587,8 @@ static void write_active_session(const char *session_id) {
 }
 
 static void remove_active_session(void) {
+    private_room_active(0);
+    runtime_room_mode_left(); /* stop following the host's room mode */
     char dir[512];
     get_sessions_dir(dir, sizeof(dir));
     const char *my_name = runtime_np_get_online_name();
@@ -596,19 +613,31 @@ void runtime_np_set_title(const char *title_id) {
     if (title_id && *title_id) snprintf(np_title, sizeof(np_title), "%s", title_id);
 }
 
+/* Room for every merged friend, including legacy config names, plus the local profile.
+ * Each record has under 1 KB of fixed JSON and at most six copies of its name. */
+static size_t friends_response_capacity(const char *csv) {
+    size_t capacity = 2048;
+    for (const char *p = csv; p && *p; ++p)
+        capacity += *p == ',' ? 1024 : 6;
+    return capacity;
+}
+
 static char *generate_friends_json(void) {
     const char *csv = runtime_np_get_friends_csv();
-    char buf[16384];
+    const size_t capacity = friends_response_capacity(csv);
+    char *buf = malloc(capacity);
+    if (!buf) return NULL;
     size_t pos = 0;
-    pos += snprintf(buf + pos, sizeof(buf) - pos, "{\"friendList\":[");
+    pos += snprintf(buf + pos, capacity - pos, "{\"friendList\":[");
 
     int count = 0;
     if (csv && *csv) {
-        char copy[1024];
+        char copy[NP_FRIENDS_CSV_CAPACITY];
         strncpy(copy, csv, sizeof(copy) - 1);
         copy[sizeof(copy) - 1] = '\0';
-        char *token = strtok(copy, ",");
-        while (token && pos + 1024 < sizeof(buf)) {
+        char *context = NULL;
+        char *token = strtok_s(copy, ",", &context);
+        while (token && pos + 1024 < capacity) {
             while (*token == ' ' || *token == '\t') token++;
             char *end = token + strlen(token);
             while (end > token && (*(end - 1) == ' ' || *(end - 1) == '\t')) end--;
@@ -616,9 +645,9 @@ static char *generate_friends_json(void) {
             if (*token) {
                 uint64_t acc_id = runtime_np_calculate_account_id(token);
                 if (count > 0) {
-                    pos += snprintf(buf + pos, sizeof(buf) - pos, ",");
+                    pos += snprintf(buf + pos, capacity - pos, ",");
                 }
-                pos += snprintf(buf + pos, sizeof(buf) - pos,
+                pos += snprintf(buf + pos, capacity - pos,
                     "{"
                     "\"avatarUrl\":\"https://image.api.playstation.com/trophy/np/default_avatar.png\","
                     "\"profilePictureUrl\":\"https://image.api.playstation.com/trophy/np/default_avatar.png\","
@@ -652,13 +681,13 @@ static char *generate_friends_json(void) {
                     token, (unsigned long long)acc_id, (unsigned long long)acc_id, token, token, token, np_title);
                 count++;
             }
-            token = strtok(NULL, ",");
+            token = strtok_s(NULL, ",", &context);
         }
     }
 
-    pos += snprintf(buf + pos, sizeof(buf) - pos, "],\"totalResults\":%d,\"size\":%d,\"offset\":0,\"limit\":500,\"start\":0}", count, count);
+    pos += snprintf(buf + pos, capacity - pos, "],\"totalResults\":%d,\"size\":%d,\"offset\":0,\"limit\":500,\"start\":0}", count, count);
     runtime_net_trace("generate_friends_json: returning %d friend(s)", count);
-    return strdup(buf);
+    return buf;
 }
 
 static char *generate_profiles_json(const char *path) {
@@ -666,16 +695,18 @@ static char *generate_profiles_json(const char *path) {
     const char *csv = runtime_np_get_friends_csv();
     const char *my_name = runtime_np_get_online_name();
 
-    char buf[16384];
+    const size_t capacity = friends_response_capacity(csv);
+    char *buf = malloc(capacity);
+    if (!buf) return NULL;
     size_t pos = 0;
-    pos += snprintf(buf + pos, sizeof(buf) - pos, "{\"profiles\":[");
+    pos += snprintf(buf + pos, capacity - pos, "{\"profiles\":[");
 
     int count = 0;
 
     /* Include local player */
     if (my_name && *my_name) {
         uint64_t my_acc = runtime_np_calculate_account_id(my_name);
-        pos += snprintf(buf + pos, sizeof(buf) - pos,
+        pos += snprintf(buf + pos, capacity - pos,
             "{"
             "\"accountId\":\"%llu\","
             "\"onlineId\":\"%s\","
@@ -701,11 +732,12 @@ static char *generate_profiles_json(const char *path) {
 
     /* Include friends */
     if (csv && *csv) {
-        char copy[1024];
+        char copy[NP_FRIENDS_CSV_CAPACITY];
         strncpy(copy, csv, sizeof(copy) - 1);
         copy[sizeof(copy) - 1] = '\0';
-        char *token = strtok(copy, ",");
-        while (token && pos + 1024 < sizeof(buf)) {
+        char *context = NULL;
+        char *token = strtok_s(copy, ",", &context);
+        while (token && pos + 1024 < capacity) {
             while (*token == ' ' || *token == '\t') token++;
             char *end = token + strlen(token);
             while (end > token && (*(end - 1) == ' ' || *(end - 1) == '\t')) end--;
@@ -713,9 +745,9 @@ static char *generate_profiles_json(const char *path) {
             if (*token && (!my_name || strcmp(token, my_name) != 0)) {
                 uint64_t acc_id = runtime_np_calculate_account_id(token);
                 if (count > 0) {
-                    pos += snprintf(buf + pos, sizeof(buf) - pos, ",");
+                    pos += snprintf(buf + pos, capacity - pos, ",");
                 }
-                pos += snprintf(buf + pos, sizeof(buf) - pos,
+                pos += snprintf(buf + pos, capacity - pos,
                     "{"
                     "\"accountId\":\"%llu\","
                     "\"onlineId\":\"%s\","
@@ -738,13 +770,13 @@ static char *generate_profiles_json(const char *path) {
                     (unsigned long long)acc_id, token, (unsigned long long)acc_id, token, token, token);
                 count++;
             }
-            token = strtok(NULL, ",");
+            token = strtok_s(NULL, ",", &context);
         }
     }
 
-    pos += snprintf(buf + pos, sizeof(buf) - pos, "],\"size\":%d,\"totalResults\":%d}", count, count);
+    pos += snprintf(buf + pos, capacity - pos, "],\"size\":%d,\"totalResults\":%d}", count, count);
     runtime_net_trace("generate_profiles_json: returning %d profile(s)", count);
-    return strdup(buf);
+    return buf;
 }
 
 static char *generate_friend_online_id_lists_json(void) {
@@ -752,34 +784,37 @@ static char *generate_friend_online_id_lists_json(void) {
     const char *my_name = runtime_np_get_online_name();
     uint64_t my_acc = runtime_np_calculate_account_id(my_name);
 
-    char buf[8192];
+    const size_t capacity = friends_response_capacity(csv);
+    char *buf = malloc(capacity);
+    if (!buf) return NULL;
     size_t pos = 0;
-    pos += snprintf(buf + pos, sizeof(buf) - pos,
+    pos += snprintf(buf + pos, capacity - pos,
         "{\"friendOnlineIdLists\":[{\"user\":{\"accountId\":\"%llu\",\"onlineId\":\"%s\"},\"friendOnlineIdList\":[",
         (unsigned long long)my_acc, (my_name && *my_name) ? my_name : "Player");
 
     int count = 0;
     if (csv && *csv) {
-        char copy[1024];
+        char copy[NP_FRIENDS_CSV_CAPACITY];
         strncpy(copy, csv, sizeof(copy) - 1);
         copy[sizeof(copy) - 1] = '\0';
-        char *token = strtok(copy, ",");
-        while (token && pos + 128 < sizeof(buf)) {
+        char *context = NULL;
+        char *token = strtok_s(copy, ",", &context);
+        while (token && pos + 128 < capacity) {
             while (*token == ' ' || *token == '\t') token++;
             char *end = token + strlen(token);
             while (end > token && (*(end - 1) == ' ' || *(end - 1) == '\t')) end--;
             *end = '\0';
             if (*token) {
-                if (count > 0) pos += snprintf(buf + pos, sizeof(buf) - pos, ",");
-                pos += snprintf(buf + pos, sizeof(buf) - pos, "\"%s\"", token);
+                if (count > 0) pos += snprintf(buf + pos, capacity - pos, ",");
+                pos += snprintf(buf + pos, capacity - pos, "\"%s\"", token);
                 count++;
             }
-            token = strtok(NULL, ",");
+            token = strtok_s(NULL, ",", &context);
         }
     }
 
-    pos += snprintf(buf + pos, sizeof(buf) - pos, "]}]}");
-    return strdup(buf);
+    pos += snprintf(buf + pos, capacity - pos, "]}]}");
+    return buf;
 }
 
 static char *invitation_json(const char *host);
@@ -1192,7 +1227,11 @@ static char *get_webapi_response_for_req(const WebApiReq *req) {
     if (req->method == 1 && strstr(req->path, "/v1/sessions/") && strstr(req->path, "/members")) {
         char sid[96];
         path_segment_after(req->path, "/v1/sessions/", sid, sizeof(sid));
-        if (sid[0]) record_session_member(sid);
+        if (sid[0]) {
+            record_session_member(sid);
+            private_room_active(1);
+            runtime_room_mode_joined(sid); /* the host's mode (Speed) from RyuNET */
+        }
         invite_session_joined(req->path);
         char resp[160];
         snprintf(resp, sizeof(resp), "{\"sessionId\":\"%s\"}", sid[0] ? sid : "cusa13795-session");
@@ -1230,6 +1269,8 @@ static char *get_webapi_response_for_req(const WebApiReq *req) {
         char sid[128];
         snprintf(sid, sizeof(sid), "cusa13795-session-%s", (my_name && *my_name) ? my_name : "host");
         write_active_session(sid);
+        private_room_active(1);
+        runtime_room_mode_hosting(); /* the room's mode to RyuNET for the players who join */
         char resp[256];
         snprintf(resp, sizeof(resp), "{\"sessionId\":\"%s\"}", sid);
         runtime_net_trace("webapi: created session -> %s", resp);
@@ -1244,7 +1285,11 @@ static char *get_webapi_response_for_req(const WebApiReq *req) {
     if (strstr(req->path, "/v1/sessions/") && strstr(req->path, "/members")) {
         char sid[96];
         path_segment_after(req->path, "/v1/sessions/", sid, sizeof(sid));
-        if (sid[0]) record_session_member(sid);
+        if (sid[0]) {
+            record_session_member(sid);
+            private_room_active(1);
+            runtime_room_mode_joined(sid);
+        }
         invite_session_joined(req->path);
         return strdup("{\"sessionId\":\"cusa13795-session\"}");
     }
@@ -1278,6 +1323,10 @@ static ABI int32_t np_webapi_send_req(int64_t req_id, const void *data, uint64_t
         if (s_webapi_reqs[i].in_use && s_webapi_reqs[i].id == req_id) {
             if (!s_webapi_reqs[i].response) {
                 s_webapi_reqs[i].response = get_webapi_response_for_req(&s_webapi_reqs[i]);
+                if (!s_webapi_reqs[i].response) {
+                    pthread_mutex_unlock(&s_webapi_lock);
+                    return HTTP_NETWORK;
+                }
                 s_webapi_reqs[i].response_len = strlen(s_webapi_reqs[i].response);
                 s_webapi_reqs[i].read_pos = 0;
             }
@@ -1297,6 +1346,10 @@ static ABI int32_t np_webapi_send_req2(int64_t req_id, const void *data, uint64_
         if (s_webapi_reqs[i].in_use && s_webapi_reqs[i].id == req_id) {
             if (!s_webapi_reqs[i].response) {
                 s_webapi_reqs[i].response = get_webapi_response_for_req(&s_webapi_reqs[i]);
+                if (!s_webapi_reqs[i].response) {
+                    pthread_mutex_unlock(&s_webapi_lock);
+                    return HTTP_NETWORK;
+                }
                 s_webapi_reqs[i].response_len = strlen(s_webapi_reqs[i].response);
                 s_webapi_reqs[i].read_pos = 0;
             }
@@ -1641,7 +1694,7 @@ void runtime_trophy_configure(const char *title) {
     if (title && *title) snprintf(trophy_title,sizeof(trophy_title),"%s",title);
 }
 static void trophy_path(char *out, size_t size, const char *file) {
-    snprintf(out,size,"%s/trophies/%s/%s",runtime_file_user_dir(),trophy_title[0] ? trophy_title : "UNKNOWN",file);
+    snprintf(out,size,"%s/trophies/%s/%s",runtime_file_progress_dir(),trophy_title[0] ? trophy_title : "UNKNOWN",file);
 }
 /* The game's trophy00.trp (big-endian header, 64-byte entries at 0x60: 32-byte name, offset,
  * size): the number of trophies (TROPnnn.PNG entries) or, with `id` >= 0, that trophy's picture
@@ -1673,6 +1726,10 @@ static int trophy_trp(int id, unsigned char **png, uint64_t *png_size) {
     return count;
 }
 static int trophy_count_from_trp(void) { return trophy_trp(-1,NULL,NULL); }
+static int trophy_spanish_language(void) {
+    const char *lang=getenv("BB_LANGUAGE");
+    return lang && (!strcmp(lang,"3") || !strcmp(lang,"20"));
+}
 static void trophy_load(void) {
     if (trophy_loaded) return;
     trophy_loaded=1;
@@ -1716,6 +1773,14 @@ static void trophy_load(void) {
         listed=CTR_TROPHY_COUNT;
     }
     if (trophy_platinum<0 && !listed && trophy_total>1) trophy_platinum=0; /* the usual id when the grades are unknown */
+    /* OCTR's own trophies (ctr_trophies.h), past the game's: their names in the game's language. */
+    for (int i=0;i<OCTR_TROPHY_COUNT;++i) {
+        const OctrTrophy *t=&octr_trophies[i];
+        if (t->id<0 || t->id>=TROPHY_MAX) continue;
+        trophy_grade[t->id]=t->grade;
+        free(trophy_names[t->id]); trophy_names[t->id]=strdup(trophy_spanish_language() ? t->name_es : t->name_en);
+        free(trophy_details[t->id]); trophy_details[t->id]=strdup(trophy_spanish_language() ? t->es : t->en);
+    }
     int before=0;
     for (int i=0;i<TROPHY_MAX;++i) before+=trophy_unlocked_at[i]!=0;
     printf("Runtime: trophies: %d in the game, %d unlocked before%s\n",trophy_total,before,
@@ -1759,10 +1824,17 @@ static ABI int32_t trophy_register(int32_t ctx,int32_t handle,uint64_t options) 
     return 0;
 }
 #define TROPHY_ALREADY_UNLOCKED ((int32_t)0x8055160F)
+extern int runtime_replay_playing(void); /* runtime_replay_play.c */
 static ABI int32_t trophy_unlock(int32_t ctx,int32_t handle,int32_t id,int32_t *platinum) {
     (void)ctx; (void)handle;
     if (platinum) *platinum=-1;
     if (id<0 || id>=TROPHY_MAX) return TROPHY_INVALID;
+    /* A replay or a friend's race is played by the game as a race of this player: its trophy checks run on it. Not
+     * earned, and not kept as earned: the game does not read this answer (trophy wrapper, EU 0xb58210). */
+    if (runtime_replay_playing()) {
+        printf("Runtime: trophy %d not given: a replay is on\n",id);
+        return 0;
+    }
     pthread_mutex_lock(&trophy_lock);
     trophy_load();
     if (trophy_unlocked_at[id]) { pthread_mutex_unlock(&trophy_lock); return TROPHY_ALREADY_UNLOCKED; }
@@ -1775,6 +1847,20 @@ static ABI int32_t trophy_unlock(int32_t ctx,int32_t handle,int32_t id,int32_t *
     }
     pthread_mutex_unlock(&trophy_lock);
     return 0;
+}
+/* The server's badges for this player (GET /ryunet/badges: {"badges":{"met_admin":...}}): OCTR's
+ * trophy of each one the player has, unlocked with its notice the first time. */
+void runtime_trophy_badges(const char *json) {
+    if (!json || !strstr(json,"\"badges\"")) return;
+    pthread_mutex_lock(&trophy_lock);
+    trophy_load();
+    for (int i=0;i<OCTR_TROPHY_COUNT;++i) {
+        const OctrTrophy *t=&octr_trophies[i];
+        char key[64];
+        snprintf(key,sizeof key,"\"%s\"",t->badge);
+        if (t->id>=0 && t->id<TROPHY_MAX && !trophy_unlocked_at[t->id] && strstr(json,key)) trophy_record(t->id,1);
+    }
+    pthread_mutex_unlock(&trophy_lock);
 }
 /* SceNpTrophyFlagArray: 128 bits, bit id%32 of word id/32; count: the game's trophies. */
 static ABI int32_t trophy_unlock_state(int32_t ctx,int32_t handle,uint32_t *flags,uint32_t *count) {

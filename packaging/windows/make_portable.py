@@ -126,6 +126,15 @@ def third_party(dlls, python=None, dlss=False):
                   f'  home:    {field("URL")}',
                   f'  source:  https://packages.msys2.org/packages/{package}',
                   f'  files:   {", ".join(packages[package]["dlls"])}', '']
+    lines += ['DirectX Shader Compiler (dxc.exe, dxcompiler.dll), in bin\\dxc\\ (the native Vulkan',
+              '  renderer compiles its shaders with it on your PC)',
+              '  license: University of Illinois/NCSA (LLVM) and MIT (bin\\dxc\\LICENSE-LLVM.txt,',
+              '           bin\\dxc\\LICENCE-MIT.txt)',
+              '  home:    https://github.com/microsoft/DirectXShaderCompiler', '',
+              'gcn2hlsl and its modules, in third_party\\gcn2hlsl\\ (the native renderer\'s shader',
+              '  translator, from the D3D11 port by FrankHUN88453, with SacredFire changes)',
+              '  license: MIT (third_party\\gcn2hlsl\\LICENSE)',
+              '  home:    https://github.com/straightarrows/CTR-NitroFueled-PC-d3d11', '']
     if python:
         lines += [f'{python}, in python\\',
                   '  license: PSF-2.0 (python\\LICENSE.txt; also covers the bundled OpenSSL, libffi,',
@@ -143,6 +152,8 @@ def third_party(dlls, python=None, dlss=False):
               'https://github.com/FireBurn/FSR-Vulkan).', '']
     lines += [f'The launcher ({PACKAGED_LAUNCHER}) and sacredfire.exe include Dear ImGui (MIT,',
               'https://github.com/ocornut/imgui) and the other libraries listed in the repository.', '']
+    lines += ['sacredfire.exe includes code ported from Replay Mode by Erluinzo (MIT,',
+              'licenses\\ctrnf-replay-mode-LICENSE.txt, https://github.com/Erluinzo/ctrnf-replay-mode).', '']
     lines += ['art\\ctr-menu.ttf: the Lilita One font by Juan Montoreano (SIL Open Font License 1.1,',
               'art\\ctr-menu-font-license.txt). art\\ctr-hero.png and art\\ctr-logo.png: game artwork',
               'from SteamGridDB, the property of its owners (art\\README.txt).', '']
@@ -193,6 +204,17 @@ def bundle_iced_x86(folder, cache):
         for name in z.namelist():
             if name.split('/')[0] in ('iced_x86', prefix):
                 z.extract(name, target)
+    # Its Python modules go as bytecode only (Code.pyc where Code.py was; Python imports such
+    # files): Code.py, a 770 KB table of constants, reads as an obfuscated script to antivirus
+    # heuristics (GData, Ikarus and Google flagged v0.8.4's package for it). The bundled Python
+    # compiles them, so their bytecode is its own version's. The .pyi type stubs are not needed.
+    package = target / 'iced_x86'
+    subprocess.run([str(folder / 'python' / 'python.exe'), '-I', '-c',
+                    'import compileall, sys; '
+                    'sys.exit(not compileall.compile_dir(sys.argv[1], legacy=True, quiet=1))', str(package)],
+                   check=True)
+    for source in list(package.glob('*.py')) + list(package.glob('*.pyi')):
+        source.unlink()
 
 
 def write_text(path, text):
@@ -204,6 +226,10 @@ def main():
     p.add_argument('--version', default='')
     p.add_argument('--dist', type=Path, default=ROOT / 'dist')
     p.add_argument('--dlss-sdk', type=Path, help='NVIDIA DLSS SDK folder: bundle DLSS')
+    # DXC (github.com/microsoft/DirectXShaderCompiler releases, dxc_*.zip unpacked): the native
+    # renderer's shaders are compiled with it on the player's PC (scripts/native_shaders.py)
+    p.add_argument('--dxc-dir', type=Path, default=ROOT.parent / 'OCTR-vulkan-lab-tools' / 'dxc',
+                   help='an unpacked DXC release (bin/x64/dxc.exe): bundle it for the native renderer')
     a = p.parse_args()
     dlss_files = []
     if a.dlss_sdk:
@@ -223,8 +249,14 @@ def main():
         sys.exit(f'{folder} could not be removed (is it open?)')
     for sub in ('bin', 'scripts', 'tools', 'patches', 'out', 'mods'):
         (folder / sub).mkdir(parents=True)
-    shutil.copy2(exe, folder / 'bin')
-    shutil.copy2(caps, folder / 'bin')
+    # The programs go without their debug information (v0.8.5): sacredfire.exe is 15 MB of code and
+    # ~145 MB of DWARF, which no player uses. Crash reports name places as sacredfire.exe+offset,
+    # the same in both; the full build is kept in symbols/ beside the package to read them.
+    (a.dist / 'symbols').mkdir(parents=True, exist_ok=True)
+    for program in (exe, caps):
+        shutil.copy2(program, a.dist / 'symbols')
+        subprocess.run([shutil.which('llvm-strip') or 'llvm-strip', '--strip-debug', '-o',
+                        str(folder / 'bin' / program.name), str(program)], check=True)
     version = a.version and f'{a.version}-windows' or (ROOT / 'out' / 'VERSION').read_text().strip()
     (folder / 'bin' / 'VERSION').write_text(version + '\n')
     dlls = closure([exe, caps])
@@ -236,51 +268,90 @@ def main():
     loader = CLANG_BIN / 'vulkan-1.dll'
     if loader.is_file():
         shutil.copy2(loader, folder / 'bin')
+    (folder / 'licenses').mkdir()
+    write_text(folder / 'licenses' / 'ctrnf-replay-mode-LICENSE.txt',
+               (ROOT / 'third_party' / 'ctrnf-replay-mode' / 'LICENSE').read_text(encoding='utf-8'))
     if dlss_files:
         for path in dlss_files:
             shutil.copy2(path, folder / 'bin')
-        (folder / 'licenses').mkdir()
         shutil.copy2(a.dlss_sdk / 'LICENSE.txt', folder / 'licenses' / 'NVIDIA-DLSS-SDK-LICENSE.txt')
         write_text(folder / 'licenses' / 'dlss-bridge-LICENSE.txt',
                    (ROOT / 'dlss_bridge' / 'LICENSE.txt').read_text(encoding='utf-8'))
     shutil.copy2(launcher, folder / PACKAGED_LAUNCHER)
+    # The EOS bridge (eosbridge/: bash eosbridge/build.sh), for networks that do not reach the
+    # server. Its settings (eosbridge/eosbridge.ini, the Epic product's ids, not in git) are built
+    # into ryunet-bridge.exe: no settings file ships.
+    bridge = [ROOT / 'out' / 'eosbridge' / f for f in ('ryunet-bridge.exe', 'EOSSDK-Win64-Shipping.dll')]
+    if all(f.is_file() for f in bridge):
+        (folder / 'eos').mkdir()
+        for f in bridge:
+            shutil.copy2(f, folder / 'eos')
+        print('EOS bridge included (eos/)')
+    else:
+        print('EOS bridge not included: build it with eosbridge/build.sh (with eosbridge/eosbridge.ini)')
     python = bundle_python(folder, a.dist / 'pycache')
     bundle_iced_x86(folder, a.dist / 'pycache')
     shutil.copy2(ROOT / 'run.py', folder)
-    (folder / 'docs').mkdir(exist_ok=True)
-    for document in ('mod-packaging.html', 'mod-support.txt'):
-        shutil.copy2(ROOT / 'docs' / document, folder / 'docs' / document)
-    shutil.copytree(ROOT / 'docs' / 'native-handbook', folder / 'docs' / 'native-handbook')
+    # No docs/ (v0.8.5): the mod guides are read on GitHub (the launcher's Mods tab links them).
     for script in (ROOT / 'scripts').glob('*.py'):
         shutil.copy2(script, folder / 'scripts')
-    for data in ('widescreen_data', 'button_prompts'):
+    # assets: the art the port puts into the game (scripts/ctr_tv_logo.py)
+    for data in ('aspect_ratio_data', 'widescreen_data', 'button_prompts', 'assets'):
         shutil.copytree(ROOT / 'scripts' / data, folder / 'scripts' / data, dirs_exist_ok=True)
-    for tool in ('gen_import_names.py', 'merge_update.py'):
-        shutil.copy2(ROOT / 'tools' / tool, folder / 'tools')
+    shutil.copy2(ROOT / 'tools' / 'gen_import_names.py', folder / 'tools')
+    # The native Vulkan renderer's shader build (scripts/native_shaders.py): the translator, its
+    # driver script and DXC. Only dxc.exe and dxcompiler.dll: SPIR-V needs no dxil.dll.
+    (folder / 'tools' / 'shaders').mkdir()
+    shutil.copy2(ROOT / 'tools' / 'shaders' / 'build_spirv.py', folder / 'tools' / 'shaders')
+    # The Direct3D 11 engine's (run.py, renderer=d3d11): the translation at the first start, and the
+    # shaders written for the PC with their sources (tools/shaders/native_d3d11.py reads them there).
+    for tool in ('build_d3d11.py', 'native_d3d11.py', 'compile_d3d11.py', 'd3d11_order.txt'):
+        shutil.copy2(ROOT / 'tools' / 'shaders' / tool, folder / 'tools' / 'shaders')
+    shutil.copytree(ROOT / 'gpu' / 'shim' / 'native_shaders', folder / 'gpu' / 'shim' / 'native_shaders',
+                    dirs_exist_ok=True)
+    shutil.copytree(ROOT / 'third_party' / 'gcn2hlsl', folder / 'third_party' / 'gcn2hlsl',
+                    ignore=shutil.ignore_patterns('__pycache__'))
+    dxc_bin = a.dxc_dir / 'bin' / 'x64'
+    if not (dxc_bin / 'dxc.exe').is_file():
+        sys.exit(f'{dxc_bin / "dxc.exe"} not found: give --dxc-dir an unpacked DXC release')
+    (folder / 'bin' / 'dxc').mkdir()
+    for f in ('dxc.exe', 'dxcompiler.dll'):
+        shutil.copy2(dxc_bin / f, folder / 'bin' / 'dxc')
+    for f in ('LICENSE-LLVM.txt', 'LICENCE-MIT.txt'):
+        if (a.dxc_dir / f).is_file():
+            shutil.copy2(a.dxc_dir / f, folder / 'bin' / 'dxc')
     for patch in (ROOT / 'patches').glob('*.xml'):
         shutil.copy2(patch, folder / 'patches')
     # The shader recipe (shaders/README.md): prepared for the player's GPU at the first start.
     if (ROOT / 'shaders' / 'recipe.zip').is_file():
         (folder / 'shaders').mkdir()
         shutil.copy2(ROOT / 'shaders' / 'recipe.zip', folder / 'shaders')
+    # The launcher's artwork and menu font (art\README.txt says where each comes from), and the
+    # Steam shortcut's (art\steamgrid: the launcher looks there first).
+    shutil.copytree(ROOT / 'art', folder / 'art', dirs_exist_ok=True)
     steamgrid_dir = PORTABLE.parent / 'steamgrid'
     if steamgrid_dir.is_dir():
-        shutil.copytree(steamgrid_dir, folder / 'steamgrid', dirs_exist_ok=True)
-    # The launcher's artwork and menu font (art\README.txt says where each comes from).
-    shutil.copytree(ROOT / 'art', folder / 'art', dirs_exist_ok=True)
-    if (ROOT / 'out' / 'aerolib.inl').is_file():
-        shutil.copy2(ROOT / 'out' / 'aerolib.inl', folder / 'out')
+        shutil.copytree(steamgrid_dir, folder / 'art' / 'steamgrid', dirs_exist_ok=True)
+    # shadPS4's import names (tools/gen_import_names.py) ship with the package: without them a
+    # first start where raw.githubusercontent.com cannot be reached stops at the first import
+    # the runtime's compiled table does not name (_sceKernelSetThreadDtors, code 20).
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import gen_import_names
+    aerolib = ROOT / 'out' / 'aerolib.inl'
+    if not gen_import_names.aerolib_names(aerolib):
+        sys.exit(f'{aerolib} could not be fetched; the package needs it')
+    shutil.copy2(aerolib, folder / 'out')
     # bbport.ini is in .gitignore (it is the player's settings file), so the defaults live in
     # bbport.default.ini and ship under the real name.
-    # The launcher sets up the game folder and starts it; the .bat is the way without it.
+    # The launcher sets up the game folder and starts it (v0.8.5: no .bat beside it any more).
     # bbport.default.ini, not bbport.ini: unzipping a new version over an old one keeps the
     # player's settings (run.py and the launcher copy the defaults when bbport.ini is missing).
-    for source, target in (('bbport.default.ini', 'bbport.default.ini'),
-                           ('Jugar CTR Nitro-Fueled.bat', 'Jugar sin launcher.bat'),
-                           ('LEEME.txt', 'LEEME.txt')):
+    for source, target in (('bbport.default.ini', 'bbport.default.ini'), ('LEEME.txt', 'LEEME.txt')):
         write_text(folder / target, (PORTABLE / source).read_text(encoding='utf-8'))
     write_text(folder / 'LICENSE', (ROOT / 'LICENSE').read_text(encoding='utf-8'))
-    (folder / 'THIRD-PARTY.txt').write_bytes(third_party(dlls, python, bool(dlss_files)).encode('utf-8'))
+    (folder / 'licenses').mkdir(exist_ok=True)
+    (folder / 'licenses' / 'THIRD-PARTY.txt').write_bytes(
+        third_party(dlls, python, bool(dlss_files)).encode('utf-8'))
 
     archive = a.dist / f'{NAME}-windows.zip'
     archive.unlink(missing_ok=True)

@@ -8,8 +8,8 @@ import unittest
 LAUNCHER = ROOT / 'launcher' / 'sacredfire_launcher.py'
 LOCALES = ROOT / 'launcher' / 'locales'
 # Choice lists whose labels the launcher passes through tr() (combo_row and the bindings pages).
-LISTS = {'FPS_LIMITS', 'RENDER_RESOLUTIONS', 'WIDESCREEN_LAYOUTS', 'PRESENT_MODES', 'LANGUAGES', 'LANGUAGES_EU', 'UPSCALERS', 'INVENTORIES',
-         'KEY_INPUTS', 'PAD_INPUTS', 'CREDITS', 'OUTPUT_RESOLUTIONS', 'MAC_DRIVERS'}
+LISTS = {'FPS_LIMITS', 'RENDER_RESOLUTIONS', 'WIDESCREEN_LAYOUTS', 'ASPECT_RATIOS', 'PRESENT_MODES', 'LANGUAGES', 'LANGUAGES_EU', 'UPSCALERS',
+         'RENDERERS', 'INVENTORIES', 'KEY_INPUTS', 'PAD_INPUTS', 'CREDITS', 'OUTPUT_RESOLUTIONS', 'MAC_DRIVERS'}
 
 
 def translated_texts():

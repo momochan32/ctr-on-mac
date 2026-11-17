@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <type_traits>
 #include <cstdio>
+#include <cstring>
 #include <boost/container/static_vector.hpp>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -18,6 +19,7 @@
 #include "video_core/renderer_vulkan/vk_dlss_ngx.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
+#include "bbport_native_memory.h"
 
 #include <vk_mem_alloc.h>
 
@@ -133,6 +135,55 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
         StopUnsupportedVulkan("this PC", 0);
     }
     LOG_INFO(Render_Vulkan, "Found {} physical devices", num_physical_devices);
+    {
+        std::string names;
+        for (const auto& physical : physical_devices) {
+            names += names.empty() ? "" : ", ";
+            names += physical.getProperties().deviceName.data();
+        }
+        std::printf("Vulkan: %zu GPU(s): %s\n", num_physical_devices, names.c_str());
+        std::fflush(stdout);
+    }
+
+    // The launcher's graphics card (BB_GPU_NAME: a name from bb-gpu-capabilities --gpus), or a
+    // kind of GPU (BB_GPU_PREFERENCE=integrated|discrete). One that is not there (another PC, a
+    // driver that failed to load) is reported and the usual automatic choice is made instead.
+    const char* wanted_name = std::getenv("BB_GPU_NAME");
+    const char* preference = std::getenv("BB_GPU_PREFERENCE");
+    const bool integrated = preference && std::strcmp(preference, "integrated") == 0;
+    const bool discrete = preference && std::strcmp(preference, "discrete") == 0;
+    if (wanted_name && *wanted_name) {
+        physical_device_index = -1;
+        for (size_t i = 0; i < physical_devices.size(); ++i) {
+            if (std::strcmp(physical_devices[i].getProperties().deviceName.data(), wanted_name) == 0) {
+                physical_device_index = static_cast<s32>(i);
+                break;
+            }
+        }
+        if (physical_device_index >= 0) {
+            std::printf("Vulkan: the launcher chose %s\n", wanted_name);
+        } else {
+            std::printf("Vulkan: the launcher's GPU (%s) is not available; choosing automatically\n",
+                        wanted_name);
+        }
+    } else if (integrated || discrete) {
+        const auto requested_type = integrated ? vk::PhysicalDeviceType::eIntegratedGpu
+                                              : vk::PhysicalDeviceType::eDiscreteGpu;
+        physical_device_index = -1;
+        for (size_t i = 0; i < physical_devices.size(); ++i) {
+            if (physical_devices[i].getProperties().deviceType == requested_type) {
+                physical_device_index = static_cast<s32>(i);
+                break;
+            }
+        }
+        if (physical_device_index < 0) {
+            std::printf("Vulkan: no %s GPU found; choosing automatically\n",
+                        integrated ? "integrated" : "dedicated");
+        } else {
+            std::printf("Vulkan: launcher requested %s GPU\n", preference);
+        }
+    }
+    std::fflush(stdout);
 
     if (physical_device_index < 0) {
         std::vector<
@@ -200,6 +251,8 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
         StopUnsupportedVulkan(properties.deviceName.data(), properties.apiVersion);
     }
 
+    std::printf("Vulkan: opening %s\n", properties.deviceName.data());
+    std::fflush(stdout);
     CreateDevice();
     CollectPhysicalMemoryInfo();
     CollectImageFormatInfo();
@@ -374,10 +427,9 @@ bool Instance::CreateDevice() {
     if (attachment_feedback_loop) {
         attachment_feedback_loop =
             add_extension(VK_EXT_ATTACHMENT_FEEDBACK_LOOP_DYNAMIC_STATE_EXTENSION_NAME);
-        if (!attachment_feedback_loop) {
-            // We want both extensions so remove the first if the second isn't available
-            enabled_extensions.pop_back();
-        }
+        // bbport: the layout alone stays on for the native renderer (its reflection blends read
+        // the target they draw into); shadPS4's own use wants both
+        feedback_loop_layout = true;
     }
     depth_range_unrestricted = add_extension(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
     dynamic_state_3 = add_extension(VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME);
@@ -412,6 +464,8 @@ bool Instance::CreateDevice() {
     amd_gcn_shader = add_extension(VK_AMD_GCN_SHADER_EXTENSION_NAME);
     amd_shader_trinary_minmax = add_extension(VK_AMD_SHADER_TRINARY_MINMAX_EXTENSION_NAME);
     nv_framebuffer_mixed_samples = add_extension(VK_NV_FRAMEBUFFER_MIXED_SAMPLES_EXTENSION_NAME);
+    nv_coverage_reduction_mode =
+        nv_framebuffer_mixed_samples && add_extension(VK_NV_COVERAGE_REDUCTION_MODE_EXTENSION_NAME);
     amd_mixed_attachment_samples = add_extension(VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME);
     shader_atomic_float = add_extension(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
     shader_atomic_float2 = add_extension(VK_EXT_SHADER_ATOMIC_FLOAT_2_EXTENSION_NAME);
@@ -452,9 +506,12 @@ bool Instance::CreateDevice() {
 #ifdef __APPLE__
     // SacredFire (macOS): the runtime's shared memory imported as a host allocation instead.
     guest_memory_export = add_extension(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
+    external_memory_host = guest_memory_export; // the same extension, added once
 #else
     guest_memory_export = add_extension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME) &&
                           add_extension(VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME);
+    // bbport: the native renderer reads guest vertex/index data in place (bbport_native_vk_buffer).
+    external_memory_host = add_extension(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
 #endif
     // bbport: FSR 4 v07 INT8 (vk_temporal_upscaler): quad derivatives in compute shaders.
     compute_shader_derivatives = add_extension(VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME);
@@ -495,18 +552,57 @@ bool Instance::CreateDevice() {
         return false;
     }
 
-    bool graphics_queue_found = false;
+    // bbport: a graphics queue that also does sparse binding when there is one (the buffer cache
+    // binds the game's memory on it), else the last graphics queue as before
+    bool graphics_queue_found = false, sparse_queue_found = false;
     for (std::size_t i = 0; i < family_properties.size(); i++) {
         const u32 index = static_cast<u32>(i);
-        if (family_properties[i].queueFlags & vk::QueueFlagBits::eGraphics) {
-            queue_family_index = index;
-            graphics_queue_found = true;
+        const auto flags = family_properties[i].queueFlags;
+        if (!(flags & vk::QueueFlagBits::eGraphics)) {
+            continue;
         }
+        const bool sparse = bool(flags & vk::QueueFlagBits::eSparseBinding);
+        if (!sparse_queue_found || sparse) {
+            queue_family_index = index;
+        }
+        graphics_queue_found = true;
+        sparse_queue_found = sparse_queue_found || sparse;
     }
 
     if (!graphics_queue_found) {
         LOG_CRITICAL(Render_Vulkan, "Unable to find graphics and/or present queues.");
         return false;
+    }
+
+    // bbport: the buffer cache keeps the game's memory in sparse buffers bound on this queue
+    // (vkQueueBindSparse at every submission). Without them the first submission loses the
+    // device (Mesa on Gen9 Intel, issue #97): stop as an unsupported GPU instead of code 23.
+    // Only sparseBinding stops it: v0.6.5 also stopped on sparseResidencyBuffer and the queue's
+    // sparse flag, and GPUs that played v0.6.4 (GTX 950M, issue #108) could not start any more;
+    // those two are logged and the game goes on as it did before.
+    // The native renderer (BB_VK_NATIVE_ONLY) has no buffer cache: no sparse buffers at all.
+    if (const auto base = physical_device.getFeatures(); BbMem::NativeOnly()) {
+    } else if (!base.sparseBinding) {
+#ifdef __APPLE__
+        // SacredFire (macOS): MoltenVK has no sparse binding; the buffer cache uses dense arenas
+        // there (buffer_cache.h), as macOS 15 and Intel Macs always have.
+        LOG_INFO(Render_Vulkan, "No sparse binding: dense buffer arenas");
+#else
+        StopUnsupportedFeature(properties.deviceName.data(), "sparse buffers (sparseBinding)");
+#endif
+    } else {
+        const bool queue_sparse = bool(family_properties[queue_family_index].queueFlags &
+                                       vk::QueueFlagBits::eSparseBinding);
+        if (!base.sparseResidencyBuffer || !queue_sparse) {
+            LOG_WARNING(Render_Vulkan,
+                        "{}: sparseResidencyBuffer {}, sparse binding on the graphics queue {}; "
+                        "going on (this worked on such GPUs up to v0.6.4)",
+                        properties.deviceName.data(), bool(base.sparseResidencyBuffer), queue_sparse);
+            std::printf("Vulkan: %s reports sparseResidencyBuffer=%d, sparse graphics queue=%d; "
+                        "going on as up to v0.6.4\n",
+                        properties.deviceName.data(), int(base.sparseResidencyBuffer),
+                        int(queue_sparse));
+        }
     }
 
     static constexpr std::array queue_priorities = {1.0f};
@@ -705,6 +801,9 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceShaderClockFeaturesKHR{
             .shaderSubgroupClock = shader_clock_features.shaderSubgroupClock,
         },
+        vk::PhysicalDeviceCoverageReductionModeFeaturesNV{
+            .coverageReductionMode = true,
+        },
         vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR{
             .computeDerivativeGroupQuads =
                 compute_shader_derivatives_features.computeDerivativeGroupQuads,
@@ -730,6 +829,9 @@ bool Instance::CreateDevice() {
 
     if (!custom_border_color) {
         device_chain.unlink<vk::PhysicalDeviceCustomBorderColorFeaturesEXT>();
+    }
+    if (!nv_coverage_reduction_mode) {
+        device_chain.unlink<vk::PhysicalDeviceCoverageReductionModeFeaturesNV>();
     }
     if (!dynamic_state_3) {
         device_chain.unlink<vk::PhysicalDeviceExtendedDynamicState3FeaturesEXT>();
@@ -759,7 +861,9 @@ bool Instance::CreateDevice() {
         device_chain.unlink<vk::PhysicalDeviceMaintenance8FeaturesKHR>();
     }
     if (!attachment_feedback_loop) {
-        device_chain.unlink<vk::PhysicalDeviceAttachmentFeedbackLoopLayoutFeaturesEXT>();
+        if (!feedback_loop_layout) {
+            device_chain.unlink<vk::PhysicalDeviceAttachmentFeedbackLoopLayoutFeaturesEXT>();
+        }
         device_chain.unlink<vk::PhysicalDeviceAttachmentFeedbackLoopDynamicStateFeaturesEXT>();
     }
     if (!shader_atomic_float2) {

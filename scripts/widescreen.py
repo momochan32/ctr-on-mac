@@ -14,8 +14,9 @@ What a layout changes, the game's files staying as they are:
 - the two HUD vertex shaders: their x scaled when they are loaded (BB_HUD_SCALE, the GPU
   library's bb_hud_scale.h), so the shader cache stays as it is;
 - the render settings the layouts were made for (scripts/patches.py reads a copy of bbport.ini
-  with them, out/widescreen/bbport.ini): the base PS4 path at 1080 (the variant sets the size),
-  no temporal upscaler, and the ultrawide of bbport.ini off, since the layout sets the size.
+  with them, out/widescreen/bbport.ini): render_res 1080 with layout_internal, the variant's
+  height (the variant sets the display size; above or below 1080 the scene is scaled to it on
+  the Pro path), no temporal upscaler, and the ultrawide of bbport.ini off.
 
 For the verified USA and EU 1.21 executables, in online and offline mode. When an asset
 is not the expected one (a mod), the game starts as it would without a layout, and the
@@ -63,10 +64,10 @@ def say(message):
 
 def selection(settings):
     """(layout, output, internal) from bbport.ini settings, or None for 16:9."""
-    layout = settings.get('widescreen_layout', 'off')
+    layout = settings.get('aspect_ratio', settings.get('widescreen_layout', 'off'))
     if layout not in OUTPUTS:
         return None
-    output = settings.get('widescreen_output', '')
+    output = settings.get('aspect_output', settings.get('widescreen_output', ''))
     if output not in OUTPUTS[layout]:
         output = OUTPUTS[layout][0]
     internal = settings.get('render_res', '1080')
@@ -205,7 +206,44 @@ def misfit(xml, out):
     return None
 
 
-def prepare(game, out, config, env, title_id, app_version, base_patches):
+def graphics_overlay(game, out, env, folder, operations):
+    """Keep the generated Graphics/Quit menus consistent with the accepted layout.
+
+    Called only after the executable and asset checks pass. Return an environment
+    override so changing back to 16:9 restores the original generated archive.
+    """
+    source = env.get('BB_GRAPHICS_TAB_ARCHIVE')
+    if not source:
+        return {}
+    import contextlib
+    import io
+    import graphics_tab
+    relevant = {(op['archive'].casefold(), op['asset'].casefold()): op for op in operations
+                if op['kind'] == 'archive_asset' and
+                op['asset'].casefold() in (set(graphics_tab.CHANGES) | set(graphics_tab.OPTIONAL))}
+    if not relevant:
+        return {}
+    stamp = {'format': 1, 'generated': sha(Path(source)),
+             'operations': list(relevant.values())}
+    key = hashlib.sha256(json.dumps(stamp, sort_keys=True).encode()).hexdigest()[:16]
+    target = Path(out) / 'widescreen' / 'graphics-tab' / key / 'update3.pak'
+    if not target.is_file():
+        def transform(archive, logical, data):
+            op = relevant.get((archive.casefold(), logical.casefold()))
+            return payload_bytes(op, folder, data) if op else data
+        # Build into a temporary file; a failed composition cannot leave a reusable cache.
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp = target.with_suffix('.tmp')
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                graphics_tab.build(Path(game), temp, target.parent / 'dump', asset_transform=transform)
+            os.replace(temp, target)
+        finally:
+            temp.unlink(missing_ok=True)
+    return {'BB_GRAPHICS_TAB_ARCHIVE': str(target.resolve())}
+
+
+def prepare(game, out, config, env, title_id, app_version, base_patches, *, boot_dir=None):
     """The launch with the layout bbport.ini picks: a dict with `config` (the settings file
     scripts/patches.py and the render path read), `patches_dir` (the executable variant),
     `archive_patches` ({guest: file}, replacing base_patches' for the same archives) and `env`;
@@ -252,20 +290,28 @@ def prepare(game, out, config, env, title_id, app_version, base_patches):
             xml.append(port_meta(meta, port) if eu else meta)
     if not eu:
         correct_markers(xml, shaders[0]['factor'])
-    reason = misfit(xml, out)
+    reason = misfit(xml, boot_dir if boot_dir is not None else out)
     if reason:
         say(f'{label} not used (the executable is not a 1.21 build the layout fits: {reason}): 16:9')
         return None
     ET.ElementTree(xml).write(patches_dir / 'Widescreen.xml', encoding='utf-8', xml_declaration=True)
 
     # The settings the layout was made for, over the player's: they stay in bbport.ini.
-    effective = dict(flat.get('settings', {}), ultrawide='0', ultrawide_frontend='0', ultrawide_cinematics='0')
+    # render_res stays 1080; layout_internal is the height of the variant's display size, and
+    # scripts/patches.py render_plan scales the 3D scene to it (the Pro path without doubling).
+    effective = dict(flat.get('settings', {}), ultrawide='0', ultrawide_frontend='0',
+                     ultrawide_cinematics='0', layout_internal=internal)
     lines = [line for line in Path(config).read_text(encoding='utf-8').splitlines()
              if line.partition('=')[0].strip() not in effective] if Path(config).is_file() else []
     effective_config = root / 'bbport.ini'
     effective_config.write_text('\n'.join(lines + [f'{k}={v}' for k, v in effective.items()]) + '\n',
                                 encoding='utf-8')
     extra = dict(flat.get('environment', {}), BB_TEMPORAL='off', BB_HUD_SCALE=hud)
+    try:
+        extra.update(graphics_overlay(game, out, env, EU if eu else folder, assets))
+    except (OSError, ValueError, KeyError, struct_error) as error:
+        # Keep the existing menus if this optional composition cannot be made.
+        say(f'Graphics/Quit menu layout not composed ({error})')
     say(f'{label} at {output}, internal {internal}p ({variant}): menus, backgrounds and a centered HUD')
     return {'config': effective_config, 'patches_dir': patches_dir, 'archive_patches': made, 'env': extra}
 
@@ -284,6 +330,7 @@ def main():
     p = argparse.ArgumentParser(description='The 21:9 or 32:9 layout of a launch (run.sh).')
     p.add_argument('game')
     p.add_argument('--out', required=True)
+    p.add_argument('--boot-dir', help='verified boot inputs (default: --out)')
     p.add_argument('--settings', required=True, help='bbport.ini')
     p.add_argument('--title-id', default=TITLE_ID)
     p.add_argument('--app-version', default=APP_VERSION)
@@ -292,7 +339,7 @@ def main():
     global MESSAGES
     MESSAGES = sys.stderr
     base = {archive_patch.read(path)[1]: Path(path) for path in a.base}
-    layout = prepare(a.game, a.out, a.settings, dict(os.environ), a.title_id, a.app_version, base)
+    layout = prepare(a.game, a.out, a.settings, dict(os.environ), a.title_id, a.app_version, base, boot_dir=a.boot_dir)
     print(f'settings={layout["config"] if layout else a.settings}')
     print(f'patches_dir={layout["patches_dir"] if layout else ""}')
     print(f'archive_patches={archive_list(base, layout)}')

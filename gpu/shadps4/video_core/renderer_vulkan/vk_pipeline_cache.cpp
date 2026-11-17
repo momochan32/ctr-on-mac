@@ -402,8 +402,20 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
             instance_.IsAmdShaderExplicitVertexParameterSupported(),
         .supports_fragment_shader_barycentric = instance_.IsFragmentShaderBarycentricSupported(),
         .supports_shader_subgroup_clock = instance_.IsShaderSubgroupClockSupported(),
-        .needs_manual_interpolation = instance.IsFragmentShaderBarycentricSupported() &&
-                                      instance.GetDriverID() == vk::DriverId::eNvidiaProprietary,
+        // bbport: without it V_INTERP_P1/P2 read the hardware-interpolated attribute and ignore
+        // the (i, j) the shader passes, which is wrong when the shader moved them (CTR's fur
+        // shells on AMD: speckled grey, shadPS4 #4413). BB_MANUAL_INTERP=1 interpolates by hand
+        // wherever per-vertex attributes exist (AMD: its explicit vertex parameter), 0 never;
+        // opt-in until AMD players confirm the fur.
+        .needs_manual_interpolation = [&] {
+            const bool per_vertex = instance.IsAmdShaderExplicitVertexParameterSupported() ||
+                                    instance.IsFragmentShaderBarycentricSupported();
+            if (const char* env = std::getenv("BB_MANUAL_INTERP")) {
+                return per_vertex && env[0] == '1';
+            }
+            return instance.IsFragmentShaderBarycentricSupported() &&
+                   instance.GetDriverID() == vk::DriverId::eNvidiaProprietary;
+        }(),
         // bbport: older NVIDIA (Pascal) has no barycentrics; BB_INTERP_INT_FIX=0/1 overrides.
         .needs_integer_interpolation_fix = [&] {
             if (const char* env = std::getenv("BB_INTERP_INT_FIX")) {
@@ -438,6 +450,18 @@ struct PipelineCache::PendingPipeline {
 };
 
 PipelineCache::~PipelineCache() = default;
+
+void PipelineCache::CreateBlurVariant(vk::ShaderModule module, u64 hash, std::span<const u32> spv) {
+    if (std::ranges::find(BbBlur::Shaders, hash) == std::end(BbBlur::Shaders)) return;
+    if (auto code = BbBlur::Unblur(spv)) {
+        blur_variants.insert_or_assign(module, vk::UniqueShaderModule(
+            CompileSPV(*code, instance.GetDevice()), instance.GetDevice()));
+        std::printf("Motion blur: shader %llx live variant ready\n", static_cast<unsigned long long>(hash));
+    } else {
+        std::printf("Motion blur: shader %llx has no matching blur branch; live variant unavailable\n",
+                    static_cast<unsigned long long>(hash));
+    }
+}
 
 // bbport: shader/pipeline compile time on the GPU thread, reported by BB_FRAME_STATS.
 std::atomic<u64> g_bb_compile_ns;
@@ -1001,6 +1025,15 @@ bool PipelineCache::RefreshGraphicsStages(PipelineSelection& sel) {
     sel.modules.fill(nullptr);
 
     bind_stage(HwStage::Fragment, SwStage::Fragment);
+    key.no_motion_blur = false;
+    if (!sel.worker && (BbSettings::Get().shad_live_graphics ?
+                        BbSettings::Get().game_patches[1].load() : BbBlur::Enabled())) {
+        const auto it = blur_variants.find(sel.modules[static_cast<u32>(SwStage::Fragment)]);
+        if (it != blur_variants.end()) {
+            key.no_motion_blur = true;
+            sel.modules[static_cast<u32>(SwStage::Fragment)] = *it->second;
+        }
+    }
 
     const auto* fs_info = sel.infos[static_cast<u32>(SwStage::Fragment)];
     key.mrt_mask = fs_info ? fs_info->mrt_mask : 0u;
@@ -1165,12 +1198,13 @@ vk::ShaderModule PipelineCache::CompileModule(Shader::Info& info, Shader::Runtim
     if (is_patched) {
         LOG_INFO(Loader, "Loaded patch for {} shader {:#x}", info.hw_stage, info.pgm_hash);
         module = CompileSPV(*patch, instance.GetDevice());
-    } else if (const auto hud = BbHud::ForModule(info.pgm_hash, perm_idx, spv)) {
+    } else if (const auto hud = BbHud::ForModule(info.pgm_hash, perm_idx, spv, false)) {
         module = CompileSPV(*hud, instance.GetDevice()); // the cache keeps the shader as it is
     } else {
         module = CompileSPV(spv, instance.GetDevice());
     }
 
+    CreateBlurVariant(module, info.pgm_hash, is_patched ? std::span<const u32>(*patch) : std::span<const u32>(spv));
     if (!IsGsEmulationStage(info, runtime_info)) {
         RegisterShaderBinary(std::move(spv), info.pgm_hash, perm_idx);
     }
@@ -1190,6 +1224,10 @@ PipelineCache::Result PipelineCache::GetProgram(PipelineSelection& sel, HwStage 
                                                 Shader::Backend::Bindings& binding) {
     auto runtime_info = BuildRuntimeInfo(sel, hw_stage, sw_stage);
     if (sel.worker) {
+        if (std::ranges::find(BbBlur::Shaders, params.hash) != std::end(BbBlur::Shaders)) {
+            sel.worker->failed = true;
+            return {};
+        }
         // bbport: draw-preparation worker: look up only, with the worker's own Info copy.
         auto& worker = *sel.worker;
         std::shared_lock lk{programs_mutex};

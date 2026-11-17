@@ -69,6 +69,12 @@ def brew_target(ref, loader):
     if ref.startswith(str(BREW)):
         p = Path(ref)
         return p.resolve() if p.exists() else None
+    # An absolute path that reaches the prefix through a symlink (the project moved, its old
+    # path now links to the new one): the install names keep the old path.
+    if ref.startswith("/") and not ref.startswith(("/usr/lib/", "/System/")):
+        p = Path(ref)
+        if p.exists() and str(p.resolve()).startswith(str(BREW)):
+            return p.resolve()
     return None
 
 

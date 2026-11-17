@@ -25,6 +25,9 @@ class PackageTests(unittest.TestCase):
         (self.port/'scripts/patches.py').write_text('# synthetic compiler')
         self.game=self.root/'game';self.game.mkdir();(self.game/'eboot.bin').write_bytes(b'synthetic executable')
         (self.game/'data.txt').write_bytes(b'original')
+        from test_game_check import param_sfo
+        (self.game/'sce_sys').mkdir()
+        (self.game/'sce_sys/param.sfo').write_bytes(param_sfo({'TITLE_ID':'CUSA13795','APP_VER':'01.21'}))
         self.ini=self.port/'bbport.ini';self.ini.write_text('output_res=1920x1080\nrender_res=1080\nonline=0\n')
         self.prefs=self.port/'patches.json';save_json(self.prefs,{'enabled':[],'disabled':[]})
         adapter.ACTIVE=None;self.count=0
@@ -55,6 +58,12 @@ class PackageTests(unittest.TestCase):
     def test_new_zip_listed_but_disabled(self):
         self.package();self.assertIn('sample',self.scan()['entries'])
         self.assertEqual(self.prepare(),(self.game,str(self.ini)))
+    def test_mod_session_keeps_launcher_invitation_directory(self):
+        self.package();self.enable('sample')
+        _,config=self.prepare()
+        self.assertNotEqual(Path(config),self.ini)
+        self.assertEqual(self.environment['BB_CONFIG'],config)
+        self.assertEqual(Path(self.environment['BB_LAUNCHER_CONFIG']),self.ini.resolve())
     def test_creator_description_survives_catalog_and_xml(self):
         text='Creator description: "warm" & curved.\nSecond line <plain text>.'
         self.package(manifest=self.manifest()|{'description':text})
@@ -134,12 +143,12 @@ class PackageTests(unittest.TestCase):
         def guarded(source,target,*args,**kwargs):
             self.assertFalse(Path(source).resolve().is_relative_to(self.game))
             return real_copy(source,target,*args,**kwargs)
-        before={p.name:p.read_bytes() for p in self.game.iterdir()}
+        before={p.relative_to(self.game).as_posix():p.read_bytes() for p in self.game.rglob('*') if p.is_file()}
         with patch.object(shutil,'copy2',side_effect=guarded),patch('os.link',side_effect=AssertionError('No game links')):
             game,_=self.prepare();game2,_=self.prepare()
         self.assertEqual((game,game2),(self.game,self.game))
         self.assertFalse((self.port/'mod-state/extensions/profiles').exists())
-        self.assertEqual(before,{p.name:p.read_bytes() for p in self.game.iterdir()})
+        self.assertEqual(before,{p.relative_to(self.game).as_posix():p.read_bytes() for p in self.game.rglob('*') if p.is_file()})
     def test_catalog_provides_native_mod_name_and_zip_identity(self):
         package=self.package(manifest=self.manifest()|{'name':'Readable mod name'})
         self.scan()
@@ -255,6 +264,19 @@ class PackageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'unverified executable write'):
             adapter.preflight(profile,self.ini,self.prefs)
 
+    def test_preflight_starts_without_a_game_patch_this_build_lacks(self):
+        from test_prepare import fixture
+        profile=self.root/'profile';(profile/'game').mkdir(parents=True);(profile/'patches').mkdir()
+        (profile/'game/eboot.bin').write_bytes(fixture())
+        # The 6.72+ build without the 60 FPS patch's code: the patch is skipped, the mods start.
+        (profile/'patches/CrashTeamRacing.xml').write_text('<Patch><TitleID><ID>CUSA13795</ID></TitleID><Metadata Name="60 FPS Unlock" AppVer="01.21" AppElf="eboot.bin"><PatchList><Line Type="bytes" Address="0x400002" Value="90" Signature="ee ee ee ee" /></PatchList></Metadata></Patch>')
+        self.ini.write_text(self.ini.read_text()+'patch_60fps=1\n')
+        self.assertEqual(adapter.preflight(profile,self.ini,self.prefs),0)
+        # A mod's own write still has to apply.
+        (profile/'patches/OCTR-Mod-Content.xml').write_text('<Patch><Metadata Name="moved" AppVer="01.21" isEnabled="true"><PatchList><Line Type="bytes" Address="0x400002" Value="90" Signature="ee ee ee ee" /></PatchList></Metadata></Patch>')
+        with self.assertRaises(ValueError):
+            adapter.preflight(profile,self.ini,self.prefs)
+
     def test_preflight_expected_code_accepts_unrelated_self_changes(self):
         from test_prepare import fixture
         profile=self.root/'profile';(profile/'game').mkdir(parents=True);(profile/'patches').mkdir()
@@ -284,12 +306,59 @@ class PackageTests(unittest.TestCase):
             self.package(ident,m,{'payload.txt':b'x'})
         self.enable('one','two')
         with self.assertRaisesRegex(ValueError,'Mod conflicts'):self.prepare()
-    def test_save_progress_only_commits_to_private_profile_after_success(self):
+    def test_two_racer_mods_get_one_registration(self):
+        # Each racer mod's update archive carries the whole registration; the session serves one
+        # with both racers, in the higher archive (racer_registry.py; its own tests cover the merge).
+        import racer_registry as rr
+        from test_racer_registry import GAME,MIKU,OLD_MIKU,GWEN,registration,skins
+        from graphics_tab import write_archive
+        class Template:flags=1
+        def pak(entries):
+            path=self.root/'pak.tmp'
+            write_archive(path,[(rr.PREFIX+p,p,i<<8,d) for i,(p,d) in enumerate(entries.items())],Template)
+            return path.read_bytes()
+        (self.game/'archives').mkdir();(self.game/'archives/update2.pak').write_bytes(pak(registration(GAME)))
+        for ident,number,racers in (('miku',4,GAME+[MIKU]),('gwen',5,GAME+[OLD_MIKU,GWEN])):
+            data=pak(registration(racers));extra=b'racer'
+            m=self.manifest(ident)|{'requiresCapabilities':['game-files'],'operations':[
+                {'kind':'game_file','target':'archives/update%d.pak'%number,'original_sha256':None,'patched_sha256':sha_bytes(data),'payload':'update.pak'},
+                {'kind':'game_file','target':'archives/driver%s.pak'%ident,'original_sha256':None,'patched_sha256':sha_bytes(extra),'payload':'racer.pak'}]}
+            self.package(ident,m,{'update.pak':data,'racer.pak':extra})
+        self.enable('miku','gwen');self.prepare()
+        import mod_file_paths
+        with patch.object(mod_file_paths,'_settings',self.environment):
+            merged=rr.read_archive(mod_file_paths.resolve(self.game/'archives/update5.pak'))
+            first=rr.read_archive(mod_file_paths.resolve(self.game/'archives/update4.pak'))
+        self.assertEqual(rr.driver_names(merged[rr.SYSTEM]),['DriverCrash','DriverCoco','DriverMiku','DriverGwen'])
+        self.assertEqual(skins(merged,'DriverMiku'),['Miku','Miku Project Diva'])
+        self.assertEqual(rr.driver_names(first[rr.SYSTEM]),['DriverCrash','DriverCoco','DriverMiku'])
+    def test_mod_session_plays_on_the_players_own_save(self):
+        """Saves and trophies go to the player's user/ (BB_PROGRESS_DIR), with or without mods."""
         self.package();self.enable('sample');self.prepare();session,state=adapter.ACTIVE
-        save=session/'user/savedata/progress';save.parent.mkdir(parents=True);save.write_bytes(b'progress')
-        adapter.finish(1);self.assertFalse((state/'user/savedata/progress').exists())
-        adapter.finish(0);self.assertEqual((state/'user/savedata/progress').read_bytes(),b'progress')
-        self.assertFalse((self.port/'user').exists())
+        self.assertEqual(Path(self.environment['BB_PROGRESS_DIR']),(self.port/'user').resolve())
+        self.assertEqual(Path(self.environment['BB_USER_DIR']),session/'user')
+        self.assertFalse((session/'user/savedata').exists());self.assertFalse((state/'user').exists())
+        adapter.finish(1);self.assertTrue((session/'result.json').exists())
+    def test_old_mod_save_profile_merged_once(self):
+        import time
+        main=self.port/'user/savedata/1/CUSA13795/savedata0/save';main.parent.mkdir(parents=True);main.write_bytes(b'main')
+        old=self.port/'mod-state/user/savedata/1/CUSA13795/savedata0/save';old.parent.mkdir(parents=True);old.write_bytes(b'mods')
+        later=time.time()+60;os.utime(old,(later,later))
+        self.package();self.enable('sample');self.prepare()
+        self.assertEqual(main.read_bytes(),b'mods')  # the newer one, made with mods
+        backups=self.port/'mod-state/save-backups'
+        kept=[p.read_bytes() for p in backups.rglob('save')]
+        self.assertIn(b'main',kept);self.assertIn(b'mods',kept)
+        self.assertFalse((self.port/'mod-state/user').exists())
+        main.write_bytes(b'newer main');self.prepare()  # once: nothing left to merge
+        self.assertEqual(main.read_bytes(),b'newer main')
+    def test_old_mod_save_profile_older_than_main_kept_aside(self):
+        main=self.port/'user/savedata/1/save';main.parent.mkdir(parents=True);main.write_bytes(b'main')
+        old=self.port/'mod-state/user/savedata/1/save';old.parent.mkdir(parents=True);old.write_bytes(b'mods')
+        os.utime(old,(1,1))
+        self.package();self.enable('sample');self.prepare()
+        self.assertEqual(main.read_bytes(),b'main')
+        self.assertIn(b'mods',[p.read_bytes() for p in (self.port/'mod-state/save-backups').rglob('save')])
     def test_compatible_resolution_preserved(self):
         m={'variantSettings':{'output_res':{'default':'5120x1440','allowed':['5120x1440','3840x1080']}}}
         settings,changes=choose([m],{'output_res':'3840x1080'})
@@ -339,6 +408,18 @@ class PackageTests(unittest.TestCase):
         profile=self.root/'profile';(profile/'game').mkdir(parents=True);(profile/'patches').mkdir()
         (profile/'game/eboot.bin').write_bytes(fixture())
         self.assertEqual(adapter.preflight(profile,str(self.ini),self.prefs),0)
+
+    def test_preflight_builtin_render_patches_without_xml_path(self):
+        from test_patches import tiny_elf
+        from patches import RENDER_SCALE_SIGNATURE,OUTPUT_DOUBLE_SIGNATURE,GPU_HEAP_SIGNATURE
+        code=bytes.fromhex(OUTPUT_DOUBLE_SIGNATURE)+b'\0'*16
+        code+=bytes.fromhex(RENDER_SCALE_SIGNATURE)+b'\0'*16+bytes.fromhex(GPU_HEAP_SIGNATURE)
+        elf=tiny_elf(code)
+        for resolution,count in [('480',3),('720',3),('1080',0),('1440',0),('1620',1),('2160',2)]:
+            with self.subTest(resolution=resolution):
+                self.ini.write_text('render_res='+resolution+'\nonline=0\n')
+                with patch('prepare.parse_self',return_value=(elf,)),patch.dict(os.environ,{'BB_ONLINE':'0'}):
+                    self.assertEqual(adapter.preflight(self.port,self.ini,self.prefs,game=self.game),count)
 
     def test_preflight_rejects_signature_skip(self):
         from test_prepare import fixture
