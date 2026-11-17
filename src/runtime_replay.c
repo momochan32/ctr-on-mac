@@ -846,12 +846,18 @@ void ABI runtime_replay_tick(void);         /* runtime_replay_play.c */
     "movdqu 192(%rsp), %xmm12\n movdqu 208(%rsp), %xmm13\n movdqu 224(%rsp), %xmm14\n movdqu 240(%rsp), %xmm15\n" \
     "mov %rbx, %rsp\n pop %rbx\n pop %r11\n pop %r10\n pop %r9\n pop %r8\n pop %rdi\n pop %rsi\n pop %rdx\n" \
     "pop %rcx\n pop %rax\n"
+/* Momochan32 (macOS): Mach-O C symbols carry a leading underscore; the stubs below name them. */
+#ifdef __APPLE__
+#define RR_P "_"
+#else
+#define RR_P ""
+#endif
 #define RR_GATE_STUB(stub, handler, cont)                                                             \
-    ".globl " #stub "\n" #stub ":\n" RR_SAVE "call " #handler "\n test %eax, %eax\n" RR_RESTORE      \
-    "jz 1f\n push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *" #cont "(%rip)\n 1: ret\n"
+    ".globl " RR_P #stub "\n" RR_P #stub ":\n" RR_SAVE "call " RR_P #handler "\n test %eax, %eax\n" RR_RESTORE      \
+    "jz 1f\n push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *" RR_P #cont "(%rip)\n 1: ret\n"
 #define RR_ENTRY_STUB(stub, handler, cont)                                                            \
-    ".globl " #stub "\n" #stub ":\n" RR_SAVE "call " #handler "\n" RR_RESTORE                        \
-    "push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *" #cont "(%rip)\n"
+    ".globl " RR_P #stub "\n" RR_P #stub ":\n" RR_SAVE "call " RR_P #handler "\n" RR_RESTORE                        \
+    "push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *" RR_P #cont "(%rip)\n"
 
 __asm__(".text\n"
         RR_ENTRY_STUB(runtime_replay_stub_race_frame, runtime_replay_race_frame, runtime_replay_cont_race_frame)
@@ -859,17 +865,17 @@ __asm__(".text\n"
         RR_GATE_STUB(runtime_replay_stub_item_used, runtime_replay_item_used, runtime_replay_cont_item_used)
         RR_ENTRY_STUB(runtime_replay_stub_level_start, runtime_replay_level_start, runtime_replay_cont_level_start)
         /* replaces "call pad_read" (every frame): the game's call, then the player's tick */
-        ".globl runtime_replay_stub_pad_read\n"
-        "runtime_replay_stub_pad_read:\n"
-        "push %rdi\n call *runtime_replay_native_pad_read(%rip)\n pop %rdi\n push %rax\n"
-        RR_SAVE "call runtime_replay_tick\n" RR_RESTORE "pop %rax\n ret\n"
+        ".globl " RR_P "runtime_replay_stub_pad_read\n"
+        "" RR_P "runtime_replay_stub_pad_read:\n"
+        "push %rdi\n call *" RR_P "runtime_replay_native_pad_read(%rip)\n pop %rdi\n push %rax\n"
+        RR_SAVE "call " RR_P "runtime_replay_tick\n" RR_RESTORE "pop %rax\n ret\n"
         /* replaces "test rax, rax; je +6" in an AI kart's input delegate (rdi = its CKartAIComponent): in a
          * replay (handler 0) the function returns at once, the kart gets the recorded inputs */
-        ".globl runtime_replay_stub_ai_input\n"
-        "runtime_replay_stub_ai_input:\n"
-        RR_SAVE "call runtime_replay_ai_input\n test %eax, %eax\n" RR_RESTORE
-        "jz 1f\n test %rax, %rax\n jz 2f\n jmp *runtime_replay_ai_body(%rip)\n"
-        "2: jmp *runtime_replay_ai_no_entity(%rip)\n"
+        ".globl " RR_P "runtime_replay_stub_ai_input\n"
+        "" RR_P "runtime_replay_stub_ai_input:\n"
+        RR_SAVE "call " RR_P "runtime_replay_ai_input\n test %eax, %eax\n" RR_RESTORE
+        "jz 1f\n test %rax, %rax\n jz 2f\n jmp *" RR_P "runtime_replay_ai_body(%rip)\n"
+        "2: jmp *" RR_P "runtime_replay_ai_no_entity(%rip)\n"
         "1: pop %rbx\n pop %r14\n pop %rbp\n ret\n"
         /* Gates in a replay (handler 0: the game's function returns at once): a kart through an item crate
          * (items come from the recording), the HUD's lap (ours) */
@@ -881,41 +887,41 @@ __asm__(".text\n"
         /* Replaces "mov rax, [stack guard]" at 0xe330f1 (after the 17 bytes the online mode wraps): a kart takes damage
          * (rdi its damage component, esi the type). Handler 0 (a replay, not a recorded hit): the function returns
          * 0, "no damage", undoing its prologue (push rbp, r15, r14, r13, r12, rbx; sub rsp, 0x48). */
-        ".globl runtime_replay_stub_damage\n runtime_replay_stub_damage:\n"
-        RR_SAVE "call runtime_replay_take_damage\n test %eax, %eax\n" RR_RESTORE
-        "jz 1f\n mov runtime_replay_stack_guard(%rip), %rax\n mov (%rax), %rax\n jmp *runtime_replay_cont_damage(%rip)\n"
+        ".globl " RR_P "runtime_replay_stub_damage\n " RR_P "runtime_replay_stub_damage:\n"
+        RR_SAVE "call " RR_P "runtime_replay_take_damage\n test %eax, %eax\n" RR_RESTORE
+        "jz 1f\n mov " RR_P "runtime_replay_stack_guard(%rip), %rax\n mov (%rax), %rax\n jmp *" RR_P "runtime_replay_cont_damage(%rip)\n"
         "1: add $0x48, %rsp\n pop %rbx\n pop %r12\n pop %r13\n pop %r14\n pop %r15\n pop %rbp\n xor %eax, %eax\n ret\n"
         /* 0xe368a0(controller, event): a kart's item events (shuffle, item, charges, show, hide) to its own HUD.
          * Handler 0: a replay sent it where it goes (the watched racer's to the HUD), the game's function returns. */
-        ".globl runtime_replay_stub_power_event\n runtime_replay_stub_power_event:\n"
-        RR_SAVE "call runtime_replay_power_event\n test %eax, %eax\n" RR_RESTORE
-        "jz 1f\n push %rbp\n mov %rsp, %rbp\n push %r14\n jmp *runtime_replay_cont_power_event(%rip)\n 1: ret\n"
-        ".globl runtime_replay_stub_hero\n runtime_replay_stub_hero:\n"
-        RR_SAVE "call runtime_replay_hero\n test %eax, %eax\n jz 1f\n"
-        "lea runtime_replay_hero_name(%rip), %rax\n mov %rax, 56(%rbx)\n"
-        "lea runtime_replay_hero_outfit(%rip), %rax\n mov %rax, 64(%rbx)\n"
-        "1:\n" RR_RESTORE "push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *runtime_replay_cont_hero(%rip)\n"
+        ".globl " RR_P "runtime_replay_stub_power_event\n " RR_P "runtime_replay_stub_power_event:\n"
+        RR_SAVE "call " RR_P "runtime_replay_power_event\n test %eax, %eax\n" RR_RESTORE
+        "jz 1f\n push %rbp\n mov %rsp, %rbp\n push %r14\n jmp *" RR_P "runtime_replay_cont_power_event(%rip)\n 1: ret\n"
+        ".globl " RR_P "runtime_replay_stub_hero\n " RR_P "runtime_replay_stub_hero:\n"
+        RR_SAVE "call " RR_P "runtime_replay_hero\n test %eax, %eax\n jz 1f\n"
+        "lea " RR_P "runtime_replay_hero_name(%rip), %rax\n mov %rax, 56(%rbx)\n"
+        "lea " RR_P "runtime_replay_hero_outfit(%rip), %rax\n mov %rax, 64(%rbx)\n"
+        "1:\n" RR_RESTORE "push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *" RR_P "runtime_replay_cont_hero(%rip)\n"
         /* A rewind clears the items: their components stay on the karts' message lists. An old item with no
          * entity left (+0x18) ends or updates as nothing; what items do on a respawn, finish, crate or wumpa
          * is skipped in a replay (it would run on freed memory). */
-        ".globl runtime_replay_stub_item_cancel\n runtime_replay_stub_item_cancel:\n"
-        "cmpq $0, 0x18(%rdi)\n je 1f\n push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *runtime_replay_cont_item_cancel(%rip)\n 1: ret\n"
-        ".globl runtime_replay_stub_item_update\n runtime_replay_stub_item_update:\n"
-        "cmpq $0, 0x18(%rdi)\n je 1f\n push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *runtime_replay_cont_item_update(%rip)\n 1: ret\n"
-        "runtime_replay_replay_on:\n" RR_SAVE "call runtime_replay_on\n test %eax, %eax\n" RR_RESTORE "ret\n"
-        ".globl runtime_replay_stub_item_respawn\n runtime_replay_stub_item_respawn:\n"
-        "call runtime_replay_replay_on\n jnz 1f\n mov 0xd0(%rdi), %eax\n jmp *runtime_replay_cont_item_respawn(%rip)\n 1: ret\n"
-        ".globl runtime_replay_stub_item_finish\n runtime_replay_stub_item_finish:\n"
-        "call runtime_replay_replay_on\n jnz 1f\n mov 0xd0(%rdi), %eax\n jmp *runtime_replay_cont_item_finish(%rip)\n 1: ret\n"
-        ".globl runtime_replay_stub_item_crate\n runtime_replay_stub_item_crate:\n"
-        "call runtime_replay_replay_on\n jnz 1f\n push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *runtime_replay_cont_item_crate(%rip)\n 1: ret\n"
-        ".globl runtime_replay_stub_item_wumpa\n runtime_replay_stub_item_wumpa:\n"
-        "call runtime_replay_replay_on\n jnz 1f\n push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *runtime_replay_cont_item_wumpa(%rip)\n 1: ret\n"
-        ".globl runtime_replay_stub_item_made\n"
-        "runtime_replay_stub_item_made:\n"
+        ".globl " RR_P "runtime_replay_stub_item_cancel\n " RR_P "runtime_replay_stub_item_cancel:\n"
+        "cmpq $0, 0x18(%rdi)\n je 1f\n push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *" RR_P "runtime_replay_cont_item_cancel(%rip)\n 1: ret\n"
+        ".globl " RR_P "runtime_replay_stub_item_update\n " RR_P "runtime_replay_stub_item_update:\n"
+        "cmpq $0, 0x18(%rdi)\n je 1f\n push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *" RR_P "runtime_replay_cont_item_update(%rip)\n 1: ret\n"
+        "" RR_P "runtime_replay_replay_on:\n" RR_SAVE "call " RR_P "runtime_replay_on\n test %eax, %eax\n" RR_RESTORE "ret\n"
+        ".globl " RR_P "runtime_replay_stub_item_respawn\n " RR_P "runtime_replay_stub_item_respawn:\n"
+        "call " RR_P "runtime_replay_replay_on\n jnz 1f\n mov 0xd0(%rdi), %eax\n jmp *" RR_P "runtime_replay_cont_item_respawn(%rip)\n 1: ret\n"
+        ".globl " RR_P "runtime_replay_stub_item_finish\n " RR_P "runtime_replay_stub_item_finish:\n"
+        "call " RR_P "runtime_replay_replay_on\n jnz 1f\n mov 0xd0(%rdi), %eax\n jmp *" RR_P "runtime_replay_cont_item_finish(%rip)\n 1: ret\n"
+        ".globl " RR_P "runtime_replay_stub_item_crate\n " RR_P "runtime_replay_stub_item_crate:\n"
+        "call " RR_P "runtime_replay_replay_on\n jnz 1f\n push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *" RR_P "runtime_replay_cont_item_crate(%rip)\n 1: ret\n"
+        ".globl " RR_P "runtime_replay_stub_item_wumpa\n " RR_P "runtime_replay_stub_item_wumpa:\n"
+        "call " RR_P "runtime_replay_replay_on\n jnz 1f\n push %rbp\n mov %rsp, %rbp\n push %r15\n jmp *" RR_P "runtime_replay_cont_item_wumpa(%rip)\n 1: ret\n"
+        ".globl " RR_P "runtime_replay_stub_item_made\n"
+        "" RR_P "runtime_replay_stub_item_made:\n"
         "push %rbx\n push %r12\n push %r13\n mov %rdi, %rbx\n mov %ecx, %r12d\n sub $8, %rsp\n"
-        "pushq 40(%rsp)\n call *runtime_replay_item_factory(%rip)\n add $16, %rsp\n mov %rax, %r13\n"
-        "mov (%rbx), %rdi\n mov %r12d, %esi\n call runtime_replay_item_made\n mov %r13, %rax\n"
+        "pushq 40(%rsp)\n call *" RR_P "runtime_replay_item_factory(%rip)\n add $16, %rsp\n mov %rax, %r13\n"
+        "mov (%rbx), %rdi\n mov %r12d, %esi\n call " RR_P "runtime_replay_item_made\n mov %r13, %rax\n"
         "pop %r13\n pop %r12\n pop %rbx\n ret\n");
 extern void runtime_replay_stub_race_frame(void), runtime_replay_stub_level_exit(void),
     runtime_replay_stub_item_used(void), runtime_replay_stub_item_made(void), runtime_replay_stub_level_start(void),

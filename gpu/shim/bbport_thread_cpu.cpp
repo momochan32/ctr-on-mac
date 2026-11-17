@@ -15,6 +15,9 @@
 #else
 #include <pthread.h>
 #include <time.h>
+#ifdef __APPLE__
+#include <mach/mach.h> // macOS: no pthread_getcpuclockid; a thread's CPU time from thread_info
+#endif
 #endif
 
 // lab: the runtime names each guest thread as it starts (src/runtime_thread.c); counted (and
@@ -38,6 +41,8 @@ struct Thread {
     std::string name;
 #ifdef _WIN32
     HANDLE handle = nullptr;
+#elif defined(__APPLE__)
+    mach_port_t port = MACH_PORT_NULL;
 #else
     clockid_t clock{};
 #endif
@@ -69,9 +74,21 @@ std::uint64_t ClockNs(clockid_t clock) {
     return clock_gettime(clock, &ts) == 0 ? std::uint64_t(ts.tv_sec) * 1000000000ull + ts.tv_nsec : 0;
 }
 
+#ifdef __APPLE__
+std::uint64_t ThreadNs(const Thread& t) {
+    thread_basic_info_data_t info{};
+    mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+    if (thread_info(t.port, THREAD_BASIC_INFO, thread_info_t(&info), &count) != KERN_SUCCESS) {
+        return 0;
+    }
+    const auto ns = [](time_value_t v) { return std::uint64_t(v.seconds) * 1000000000ull + std::uint64_t(v.microseconds) * 1000ull; };
+    return ns(info.user_time) + ns(info.system_time);
+}
+#else
 std::uint64_t ThreadNs(const Thread& t) {
     return ClockNs(t.clock);
 }
+#endif
 
 std::uint64_t ProcessNs() {
     return ClockNs(CLOCK_PROCESS_CPUTIME_ID);
@@ -89,6 +106,8 @@ void Register(const char* name) {
                          THREAD_QUERY_LIMITED_INFORMATION, FALSE, 0)) {
         return;
     }
+#elif defined(__APPLE__)
+    t.port = pthread_mach_thread_np(pthread_self());
 #else
     if (pthread_getcpuclockid(pthread_self(), &t.clock) != 0) {
         return;

@@ -309,8 +309,11 @@ if (APPLE)
     set_target_properties(sacredfire PROPERTIES C_STANDARD 11 C_EXTENSIONS ON)
     set_source_files_properties(../src/isa_emulate.c PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
     target_compile_options(sacredfire PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wall -Wno-deprecated-declarations>)
-    target_include_directories(sacredfire PRIVATE .. ../src)
-    target_link_libraries(sacredfire PRIVATE bbgpu atrac9 -pthread)
+    # liblzma (the archive decoder, src/runtime_lzma.c), static and x86_64: MacPorts' (make_dmg's
+    # dev prefix). BB_LZMA_PREFIX overrides it.
+    set(BB_LZMA_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/../out/macports-dev-darwin23-x86_64" CACHE PATH "")
+    target_include_directories(sacredfire PRIVATE .. ../src ${BB_LZMA_PREFIX}/include)
+    target_link_libraries(sacredfire PRIVATE bbgpu atrac9 ${BB_LZMA_PREFIX}/lib/liblzma.a -pthread)
     # Runtime symbols the GPU library calls back into (runtime_memory_*, ...) live in this binary.
     set_target_properties(sacredfire PROPERTIES BUILD_RPATH "@executable_path")
     add_executable(bb-gpu-capabilities ../tools/gpu_capabilities.c)
